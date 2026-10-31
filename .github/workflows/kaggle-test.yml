@@ -16,7 +16,7 @@ jobs:
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
           [ -n "$KAGGLE_USERNAME" ] && echo "username secret: set" || echo "username secret: MISSING"
-          [ -n "$KAGGLE_KEY" ] && echo "key secret: set (${#KAGGLE_KEY} chars, starts ${KAGGLE_KEY:0:5}...)" | sed 's/starts .*/&/' || echo "key secret: MISSING"
+          [ -n "$KAGGLE_KEY" ] && echo "key secret: set" || echo "key secret: MISSING"
           case "$KAGGLE_KEY" in KGAT_*) export KAGGLE_API_TOKEN="$KAGGLE_KEY";; esac
           python3 r2.py get "$(jq -r .src queue/kaggle-test.json)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           cat > s.json <<'J'
