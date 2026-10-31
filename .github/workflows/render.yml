@@ -157,6 +157,8 @@ jobs:
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/$RUN/voice-all.tgz" v.tgz && mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
           mkdir -p w/chunks; for k in $(python3 r2.py list "work/$ID/$RUN/chunks/" | awk '{print $3}'); do python3 r2.py get "$k" "w/chunks/$(basename $k)"; done
+          WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length); GOT=$(ls w/chunks/*.mp4 | wc -l)
+          [ "$GOT" = "$WANT" ] || { echo "pieces: got $GOT of $WANT"; exit 1; }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
       - name: Audio, join, master, deliver
