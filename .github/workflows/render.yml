@@ -121,6 +121,7 @@ jobs:
 
   chunk:
     needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}   # tevoice may be skipped (English); don't let that skip us
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -145,6 +146,7 @@ jobs:
 
   finish:
     needs: [plan, chunk]
+    if: ${{ !cancelled() && needs.chunk.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
