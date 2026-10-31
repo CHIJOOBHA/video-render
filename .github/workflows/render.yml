@@ -229,9 +229,31 @@ jobs:
           python3 $GITHUB_WORKSPACE/r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
           bash $GITHUB_WORKSPACE/finalize_piece.sh "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks"
 
+  audio:     # the sound track is rendered at the same time as the picture pieces (was done after them in finish)
+    needs: [prep, plan]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && fromJson(needs.prep.outputs.req).proj == null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Project + voice
+        run: |
+          R=queue/request.json; ID=$(jq -r .video_id $R)
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz
+          mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Render sound track
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R)
+          cd w && npm ci --no-audit --no-fund --silent
+          npx remotion render src/index.ts "$(jq -r .comp $R)" audio.wav --codec=wav --log=error
+          python3 $GITHUB_WORKSPACE/r2.py put audio.wav "work/$ID/${{ github.run_id }}/audio.wav"
+
   finish:
-    needs: [plan, chunk]
-    if: ${{ !cancelled() && needs.chunk.result == 'success' }}
+    needs: [plan, chunk, audio]
+    if: ${{ !cancelled() && needs.chunk.result == 'success' && needs.audio.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -258,8 +280,11 @@ jobs:
             mv w/chunks w/$P/chunks; cd w/$P; tar -xzf $GITHUB_WORKSPACE/v.tgz
             cp public/voice_$L.wav audio.wav; cp src/ep/timings_$L.json durations.json
           else
-          cd w && npm ci --no-audit --no-fund --silent
-          npx remotion render src/index.ts "$COMP" audio.wav --codec=wav --log=error
+          cd w
+          if ! python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/audio.wav" audio.wav 2>/dev/null; then
+            npm ci --no-audit --no-fund --silent
+            npx remotion render src/index.ts "$COMP" audio.wav --codec=wav --log=error
+          fi
           cp public/voice/$L/$(basename "$(jq -r .lesson $R)" .ts)/durations.json durations.json
           fi
           WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length)
