@@ -95,6 +95,8 @@ jobs:
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
           echo "ok=false" >> "$GITHUB_OUTPUT"
+          # "no_gpu": true — skip Kaggle. 31 Oct 2026: Kaggle GPU voice failed the final check (sentence 01.1.6 scored 0.22 vs 0.95 on CPU)
+          [ "$(jq -r '.no_gpu // false' queue/request.json)" != "true" ] || { echo "no_gpu requested - using CPU machines"; exit 0; }
           [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ] || { echo "no Kaggle secrets - using CPU machines"; exit 0; }
           case "$KAGGLE_KEY" in KGAT_*) export KAGGLE_API_TOKEN="$KAGGLE_KEY";; esac
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
