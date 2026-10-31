@@ -1,0 +1,191 @@
+# Public render runner (free, unlimited minutes for public repos). Contains NO course content.
+# Trigger: Claude pushes queue/request.json (commit message = video id). The private project arrives as a tarball
+# from private storage (src/<sha>.tgz); voice + pieces pass through private storage work/<video_id>/<run_id>/
+# (kept 7 days so one bad piece can be re-made). No GitHub artifacts. Newest request for a video cancels older runs.
+# request.json: { "video_id", "chapter_id", "src": "src/<sha>.tgz", "lesson": "src/lessons/jr-x.ts", "spec": "jrXSpec",
+#   "comp": "JrXEN", "lang": "en"|"te", "chunks": 12, "voice_tar": "voice/x.tgz" (optional), "te_shards": 16 (optional) }
+name: render
+run-name: ${{ github.event.head_commit.message || 'render (manual)' }}
+on:
+  push:
+    branches: [main]
+    paths: ['queue/request.json']
+  workflow_dispatch:
+
+concurrency: { group: "render-${{ github.sha }}", cancel-in-progress: false }
+permissions: { contents: read, actions: write, id-token: write }
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      req: ${{ steps.req.outputs.req }}
+      shards: ${{ steps.voice.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: req
+        run: echo "req=$(jq -c . queue/request.json)" >> "$GITHUB_OUTPUT"
+      - name: No double runs — cancel older runs of the same video
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          ID=$(jq -r .video_id queue/request.json)
+          for st in queued in_progress; do
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/runs?status=$st&per_page=50" -q '.workflow_runs[]|"\(.id) \(.head_sha)"'
+          done | while read rid sha; do
+            [ "$rid" -lt "$GITHUB_RUN_ID" ] || continue
+            other=$(gh api "repos/$GITHUB_REPOSITORY/contents/queue/request.json?ref=$sha" -q .content | base64 -d | jq -r .video_id)
+            [ "$other" = "$ID" ] && { echo "cancel older run $rid"; gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$rid/cancel" || true; }
+          done
+      - name: Status → started
+        run: |
+          ID=$(jq -r .video_id queue/request.json)
+          echo "{\"state\":\"started\",\"runner\":\"public\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json
+          python3 r2.py put s.json "jobs/$ID.json"
+      - name: Private project
+        run: python3 r2.py get "$(jq -r .src queue/request.json)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
+      - id: voice
+        name: Voice plan
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R)
+          cd w
+          if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
+          npm ci --no-audit --no-fund --silent
+          node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" sentences.json
+          python3 ../r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
+          if [ "$L" = "te" ]; then
+            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
+          else
+            pip install -q kokoro-onnx soundfile wordfreq
+            sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg espeak-ng >/dev/null
+            KOKORO_DIR=$HOME/kokoro-model bash tools/setup_kokoro.sh
+            KOKORO_DIR=$HOME/kokoro-model OUT=$RUNNER_TEMP bash tools/chapter.sh voice "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$(jq -r .comp $R)" "$(jq -r '.voice // "roki-in50"' $R)"
+            tar -czf en-voice.tgz -C public/voice/en .
+            python3 ../r2.py put en-voice.tgz "work/$ID/$GITHUB_RUN_ID/en-voice.tgz"
+            echo "shards=[]" >> "$GITHUB_OUTPUT"
+          fi
+
+  tevoice:   # Telugu in CHIJOBHA's copied voice, split over many machines
+    needs: prep
+    if: ${{ needs.prep.outputs.shards != '[]' && needs.prep.outputs.shards != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: ${{ fromJson(needs.prep.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Telugu voice shard ${{ matrix.shard }}
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); N=$(jq -r '.te_shards // 16' $R)
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/${{ github.run_id }}/sentences.json" sentences.json
+          sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
+          bash w/tools/setup_indicf5.sh > /dev/null
+          SHARD="${{ matrix.shard }}/$N" python3 w/tools/voice_te.py sentences.json te-out > /dev/null
+          tar -czf te-${{ matrix.shard }}.tgz -C te-out .
+          python3 r2.py put te-${{ matrix.shard }}.tgz "work/$ID/${{ github.run_id }}/te/te-${{ matrix.shard }}.tgz"
+
+  plan:
+    needs: [prep, tevoice]
+    if: ${{ always() && needs.prep.result == 'success' && (needs.tevoice.result == 'success' || needs.tevoice.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      ranges: ${{ steps.plan.outputs.ranges }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R); RUN=${{ github.run_id }}
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          LID=$(basename "$(jq -r .lesson $R)" .ts); V=w/public/voice/$L; mkdir -p $V/$LID
+          if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then
+            python3 r2.py get "$(jq -r .voice_tar $R)" v.tgz && tar -xzf v.tgz -C $V/$LID
+          elif [ "$L" = "te" ]; then
+            pip install -q soundfile
+            python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
+            for k in $(python3 r2.py list "work/$ID/$RUN/te/" | awk '{print $3}'); do python3 r2.py get "$k" t.tgz && tar -xzf t.tgz -C $V/$LID; done
+            python3 w/tools/durations.py sentences.json $V/$LID
+          else
+            python3 r2.py get "work/$ID/$RUN/en-voice.tgz" v.tgz && tar -xzf v.tgz -C $V
+          fi
+          tar -czf voice-all.tgz -C w/public/voice .
+          python3 r2.py put voice-all.tgz "work/$ID/$RUN/voice-all.tgz"
+          echo "ranges=$(python3 w/tools/ci_plan.py $V/$LID/durations.json $(jq -r '.chunks // 12' $R) | jq -c .ranges)" >> "$GITHUB_OUTPUT"
+
+  chunk:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: true
+      matrix:
+        range: ${{ fromJson(needs.plan.outputs.ranges) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Project + voice
+        run: |
+          R=queue/request.json; ID=$(jq -r .video_id $R)
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz && mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
+      - name: Render frames ${{ matrix.range }}
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R)
+          cd w && npm ci --no-audit --no-fund --silent
+          npx remotion render src/index.ts "$(jq -r .comp $R)" "chunk-${{ matrix.range }}.mp4" --frames=${{ matrix.range }} --muted --codec=h264 --crf=18 --concurrency=100% --log=error
+          python3 ../r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
+
+  finish:
+    needs: [plan, chunk]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Project + voice + pieces
+        run: |
+          R=queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/$RUN/voice-all.tgz" v.tgz && mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+          mkdir -p w/chunks; for k in $(python3 r2.py list "work/$ID/$RUN/chunks/" | awk '{print $3}'); do python3 r2.py get "$k" "w/chunks/$(basename $k)"; done
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
+      - name: Audio, join, master, deliver
+        run: |
+          R=$PWD/queue/request.json; COMP=$(jq -r .comp $R); ID=$(jq -r .video_id $R); CH=$(jq -r .chapter_id $R); L=$(jq -r '.lang // "en"' $R)
+          sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
+          cd w && npm ci --no-audit --no-fund --silent
+          npx remotion render src/index.ts "$COMP" audio.wav --codec=wav --log=error
+          ls chunks/*.mp4 | sort -t- -k2 -n | sed "s|^|file '$PWD/|; s|$|'|" > list.txt
+          ffmpeg -v error -y -f concat -safe 0 -i list.txt -c copy video.mp4
+          ffmpeg -v error -y -i video.mp4 -i audio.wav -map 0:v -map 1:a -c:v libx264 -preset medium -tune animation -crf 22 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k -movflags +faststart hd.mp4
+          ffmpeg -v error -y -i hd.mp4 -vf scale=-2:480 -c:v libx264 -preset veryfast -crf 26 -profile:v main -pix_fmt yuv420p -c:a aac -b:a 96k -ac 1 -movflags +faststart sd.mp4
+          python3 ../r2.py put hd.mp4 "$CH/$ID-hd.mp4"
+          python3 ../r2.py put sd.mp4 "$CH/$ID-sd.mp4"
+          DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
+          jq -n --arg d "$DUR" --arg run "$GITHUB_RUN_ID" --arg hd "$(stat -c%s hd.mp4)" --arg sd "$(stat -c%s sd.mp4)" \
+            --slurpfile dur public/voice/$L/$(basename "$(jq -r .lesson $R)" .ts)/durations.json \
+            '{state:"done", runner:"public", duration:($d|tonumber), hd_bytes:($hd|tonumber), sd_bytes:($sd|tonumber), run:$run, durations:$dur[0], at:(now|todate)}' > s.json
+          python3 ../r2.py put s.json "jobs/$ID.json"
+      - name: Remove work files older than 7 days
+        run: |
+          CUT=$(date -u -d '7 days ago' +%F)
+          python3 r2.py list work/ | awk -v c="$CUT" '$1<c {print $3}' | while read k; do python3 r2.py rm "$k"; done
+
+  report-failure:
+    needs: [prep, tevoice, plan, chunk, finish]
+    if: failure() || cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ID=$(jq -r .video_id queue/request.json)
+          echo "{\"state\":\"failed\",\"runner\":\"public\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json
+          python3 r2.py put s.json "jobs/$ID.json" || true
