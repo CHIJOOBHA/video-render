@@ -261,6 +261,19 @@ jobs:
             --slurpfile dur durations.json \
             '{state:"done", runner:"public", duration:($d|tonumber), hd_bytes:($hd|tonumber), sd_bytes:($sd|tonumber), run:$run, durations:$dur[0], at:(now|todate)}' > s.json
           python3 $GITHUB_WORKSPACE/r2.py put s.json "jobs/$ID.json"
+      - name: Final voice check (sub-project mode) — every script sentence must be heard
+        run: |
+          R=$PWD/queue/request.json; P=$(jq -r '.proj // empty' $R); L=$(jq -r '.lang // "en"' $R)
+          [ -n "$P" ] || exit 0
+          cd w/$P && pip install -q faster-whisper numpy
+          python3 tools/te_timeline.py sentences sentences.json
+          D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
+          B=$(ffmpeg -v info -i hd.mp4 -vf "blackdetect=d=1.0:pix_th=0.10" -an -f null - 2>&1 | grep -c black_start || true)
+          echo "::notice title=video::duration ${D}s · black stretches over 1s: ${B}"
+          set +e; python3 $GITHUB_WORKSPACE/w/tools/qa_final.py hd.mp4 sentences.json "$L" report.md > /dev/null; rc=$?; set -e
+          echo "::notice title=voice::$(sed -n 2p report.md)"
+          grep -o "MISSING/GARBLED [^ ]* (match [0-9.]*)" report.md | while read -r l; do echo "::warning title=voice::$l"; done || true
+          exit $rc
       - name: Remove work files older than 7 days
         run: |
           CUT=$(date -u -d '7 days ago' +%F)
