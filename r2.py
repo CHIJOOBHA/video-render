@@ -13,12 +13,20 @@ def oidc():
     return json.load(urllib.request.urlopen(req))["value"]
 
 def call(action, **q):
-    req = urllib.request.Request(f"{FN}?action={action}&" + urllib.parse.urlencode(q), method="POST",
-                                 headers={"x-gh-oidc": oidc()})
-    try:
-        return json.load(urllib.request.urlopen(req, timeout=120))
-    except urllib.error.HTTPError as e:
-        sys.exit(f"{action} {q.get('key', q.get('prefix'))}: HTTP {e.code} {e.read()[:200]!r}")
+    # 16+ machines ask at once: retry busy/temporary answers with back-off before giving up
+    import time, random
+    for n in range(6):
+        req = urllib.request.Request(f"{FN}?action={action}&" + urllib.parse.urlencode(q), method="POST",
+                                     headers={"x-gh-oidc": oidc()})
+        try:
+            return json.load(urllib.request.urlopen(req, timeout=120))
+        except urllib.error.HTTPError as e:
+            err = f"{action} {q.get('key', q.get('prefix'))}: HTTP {e.code} {e.read()[:200]!r}"
+            if e.code < 500 and e.code != 429: sys.exit(err)
+        except (urllib.error.URLError, TimeoutError) as e:
+            err = f"{action}: {e}"
+        print(f"retry {n + 1}: {err}", file=sys.stderr); time.sleep(5 * (n + 1) + random.random() * 5)
+    sys.exit(err)
 
 def curl(*a):
     subprocess.run(["curl", "-sS", "--fail", "--retry", "4", "--retry-all-errors", *a], check=True)

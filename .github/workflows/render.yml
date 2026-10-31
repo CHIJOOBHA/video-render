@@ -82,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
-      fail-fast: true
+      fail-fast: false   # one machine's hiccup must not stop the other 15; re-run only the failed shard
       matrix:
         shard: ${{ fromJson(needs.prep.outputs.shards) }}
     steps:
@@ -95,7 +95,8 @@ jobs:
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/${{ github.run_id }}/sentences.json" sentences.json
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
-          bash w/tools/setup_indicf5.sh > /dev/null
+          sleep $(( ${{ matrix.shard }} * 4 ))   # stagger the 1.4 GB model downloads
+          bash w/tools/setup_indicf5.sh 2>&1 | tail -3
           SHARD="${{ matrix.shard }}/$N" python3 w/tools/voice_te.py sentences.json te-out > /dev/null
           tar -czf te-${{ matrix.shard }}.tgz -C te-out .
           python3 r2.py put te-${{ matrix.shard }}.tgz "work/$ID/${{ github.run_id }}/te/te-${{ matrix.shard }}.tgz"
