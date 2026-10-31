@@ -1,0 +1,36 @@
+# Final check of a finished video (rule 1: every script sentence spoken). Contains NO content: the result is reported as
+# GitHub annotations with sentence ids and numbers only. Trigger: push queue/qa.json
+#   { "video_id", "chapter_id", "src": "src/<sha>.tgz", "proj": "channels/bitbadi/vox-en" (sub-project), "lang": "te" }
+name: qa
+run-name: ${{ github.event.head_commit.message || 'qa (manual)' }}
+on:
+  push:
+    branches: [main]
+    paths: ['queue/qa.json']
+  workflow_dispatch:
+permissions: { contents: read, id-token: write }
+jobs:
+  voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Listen to the finished video
+        run: |
+          Q=$PWD/queue/qa.json; ID=$(jq -r .video_id $Q); CH=$(jq -r .chapter_id $Q); L=$(jq -r '.lang // "te"' $Q); P=$(jq -r '.proj // empty' $Q)
+          python3 r2.py get "$(jq -r .src $Q)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "$CH/$ID-hd.mp4" hd.mp4
+          sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
+          pip install -q faster-whisper numpy
+          if [ -n "$P" ]; then python3 w/$P/tools/te_timeline.py sentences sentences.json; else echo "::error::qa needs proj (sub-project) for now"; exit 1; fi
+          D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
+          A=$(ffprobe -v error -select_streams a -show_entries stream=codec_name -of csv=p=0 hd.mp4)
+          B=$(ffmpeg -v info -i hd.mp4 -vf "blackdetect=d=1.0:pix_th=0.10" -an -f null - 2>&1 | grep -c black_start || true)
+          echo "::notice title=video::duration ${D}s · audio ${A} · black stretches >1s: ${B}"
+          set +e; python3 w/tools/qa_final.py hd.mp4 sentences.json "$L" report.md > /dev/null; rc=$?; set -e
+          N=$(sed -n 2p report.md | cut -d' ' -f1)
+          echo "::notice title=voice::$N sentences heard"
+          grep -o "MISSING/GARBLED [^ ]* (match [0-9.]*)" report.md | while read -r l; do echo "::warning title=voice::$l"; done
+          exit $rc
