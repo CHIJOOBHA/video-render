@@ -4,6 +4,9 @@
 # (kept 7 days so one bad piece can be re-made). No GitHub artifacts. Newest request for a video cancels older runs.
 # request.json: { "video_id", "chapter_id", "src": "src/<sha>.tgz", "lesson": "src/lessons/jr-x.ts", "spec": "jrXSpec",
 #   "comp": "JrXEN", "lang": "en"|"te", "chunks": 12, "voice_tar": "voice/x.tgz" (optional), "te_shards": 16 (optional) }
+# Sub-project mode (Bit Badi Vox engine): "proj": "channels/bitbadi/vox-en" (+ "comp": "EpTE", "lang": "te"). The project
+#   folder has its own package.json (entry src/index.tsx); sentences come from proj tools/te_timeline.py; the joined voice +
+#   timings + Bit's mouth data are built in `plan` and passed to the pieces.
 name: render
 run-name: ${{ github.event.head_commit.message || 'render (manual)' }}
 on:
@@ -52,6 +55,12 @@ jobs:
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R)
           cd w
           if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
+          P=$(jq -r '.proj // empty' $R)
+          if [ -n "$P" ]; then
+            python3 $P/tools/te_timeline.py sentences sentences.json
+            python3 ../r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
+            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           npm ci --no-audit --no-fund --silent
           node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" sentences.json
           python3 ../r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
@@ -104,6 +113,23 @@ jobs:
         run: |
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R); RUN=${{ github.run_id }}
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          P=$(jq -r '.proj // empty' $R)
+          if [ -n "$P" ]; then
+            pip install -q soundfile numpy && sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
+            mkdir te; for k in $(python3 r2.py list "work/$ID/$RUN/te/" | awk '{print $3}'); do python3 r2.py get "$k" t.tgz && tar -xzf t.tgz -C te; done
+            cd w/$P
+            python3 tools/te_timeline.py build $GITHUB_WORKSPACE/te
+            python3 tools/amp.py public/voice_te.wav src/ep/amp_te.json
+            [ -f src/ep/amp_en.json ] || echo '[0]' > src/ep/amp_en.json
+            tar -czf $GITHUB_WORKSPACE/voice-all.tgz public/voice_te.wav src/ep/timings_te.json src/ep/amp_te.json src/ep/amp_en.json
+            npm ci --no-audit --no-fund --silent
+            FR=$(npx remotion compositions src/index.tsx 2>/dev/null | awk -v c="$(jq -r .comp $R)" '$1==c {print $4}')
+            echo "frames $FR"; cd $GITHUB_WORKSPACE
+            python3 r2.py put voice-all.tgz "work/$ID/$RUN/voice-all.tgz"
+            N=$(jq -r '.chunks // 12' $R)
+            echo "ranges=$(python3 -c "import json;f=int('$FR');n=$N;s=-(-f//n);print(json.dumps([f'{a}-{min(f,a+s)-1}' for a in range(0,f,s)]))")" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           LID=$(basename "$(jq -r .lesson $R)" .ts); V=w/public/voice/$L; mkdir -p $V/$LID
           if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then
             python3 r2.py get "$(jq -r .voice_tar $R)" v.tgz && tar -xzf v.tgz -C $V/$LID
@@ -134,12 +160,20 @@ jobs:
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R)
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
-          python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz && mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+          python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz
+          [ -n "$(jq -r '.proj // empty' $R)" ] || { mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice; }
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
+        with: { node-version: 22 }
       - name: Render frames ${{ matrix.range }}
         run: |
-          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R)
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); P=$(jq -r '.proj // empty' $R)
+          if [ -n "$P" ]; then
+            cd w/$P && tar -xzf $GITHUB_WORKSPACE/v.tgz
+            (cd public/fonts && bash get_fonts.sh >/dev/null) && npm ci --no-audit --no-fund --silent
+            npx remotion render src/index.tsx "$(jq -r .comp $R)" "chunk-${{ matrix.range }}.mp4" --frames=${{ matrix.range }} --muted --codec=h264 --crf=18 --concurrency=100% --log=error
+            python3 $GITHUB_WORKSPACE/r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
+            exit 0
+          fi
           cd w && npm ci --no-audit --no-fund --silent
           npx remotion render src/index.ts "$(jq -r .comp $R)" "chunk-${{ matrix.range }}.mp4" --frames=${{ matrix.range }} --muted --codec=h264 --crf=18 --concurrency=100% --log=error
           python3 ../r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
@@ -155,29 +189,37 @@ jobs:
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
-          python3 r2.py get "work/$ID/$RUN/voice-all.tgz" v.tgz && mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+          python3 r2.py get "work/$ID/$RUN/voice-all.tgz" v.tgz
+          [ -n "$(jq -r '.proj // empty' $R)" ] || { mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice; }
           mkdir -p w/chunks; for k in $(python3 r2.py list "work/$ID/$RUN/chunks/" | awk '{print $3}'); do python3 r2.py get "$k" "w/chunks/$(basename $k)"; done
           WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length); GOT=$(ls w/chunks/*.mp4 | wc -l)
           [ "$GOT" = "$WANT" ] || { echo "pieces: got $GOT of $WANT"; exit 1; }
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
+        with: { node-version: 22 }
       - name: Audio, join, master, deliver
         run: |
           exec > >(tee -a "$RUNNER_TEMP/finish.log") 2>&1; set -x
           trap 'tail -c 6000 "$RUNNER_TEMP/finish.log" > "$RUNNER_TEMP/tail.txt"; python3 $GITHUB_WORKSPACE/r2.py put "$RUNNER_TEMP/tail.txt" "work/$(jq -r .video_id $GITHUB_WORKSPACE/queue/request.json)/$GITHUB_RUN_ID/finish-log.txt"' ERR
           R=$PWD/queue/request.json; COMP=$(jq -r .comp $R); ID=$(jq -r .video_id $R); CH=$(jq -r .chapter_id $R); L=$(jq -r '.lang // "en"' $R)
+          P=$(jq -r '.proj // empty' $R)
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
+          if [ -n "$P" ]; then
+            mv w/chunks w/$P/chunks; cd w/$P; tar -xzf $GITHUB_WORKSPACE/v.tgz
+            cp public/voice_$L.wav audio.wav; cp src/ep/timings_$L.json durations.json
+          else
           cd w && npm ci --no-audit --no-fund --silent
           npx remotion render src/index.ts "$COMP" audio.wav --codec=wav --log=error
+          cp public/voice/$L/$(basename "$(jq -r .lesson $R)" .ts)/durations.json durations.json
+          fi
           ls chunks/*.mp4 | sort -t- -k2 -n | sed "s|^|file '$PWD/|; s|$|'|" > list.txt
           ffmpeg -v error -y -f concat -safe 0 -i list.txt -c copy video.mp4
-          ffmpeg -v error -y -i video.mp4 -i audio.wav -map 0:v -map 1:a -c:v libx264 -preset medium -tune animation -crf 22 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k -movflags +faststart hd.mp4
+          ffmpeg -v error -y -i video.mp4 -i audio.wav -map 0:v -map 1:a -shortest -c:v libx264 -preset medium -tune animation -crf 22 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k -movflags +faststart hd.mp4
           ffmpeg -v error -y -i hd.mp4 -vf scale=-2:480 -c:v libx264 -preset veryfast -crf 26 -profile:v main -pix_fmt yuv420p -c:a aac -b:a 96k -ac 1 -movflags +faststart sd.mp4
           python3 ../r2.py put hd.mp4 "$CH/$ID-hd.mp4"
           python3 ../r2.py put sd.mp4 "$CH/$ID-sd.mp4"
           DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
           jq -n --arg d "$DUR" --arg run "$GITHUB_RUN_ID" --arg hd "$(stat -c%s hd.mp4)" --arg sd "$(stat -c%s sd.mp4)" \
-            --slurpfile dur public/voice/$L/$(basename "$(jq -r .lesson $R)" .ts)/durations.json \
+            --slurpfile dur durations.json \
             '{state:"done", runner:"public", duration:($d|tonumber), hd_bytes:($hd|tonumber), sd_bytes:($sd|tonumber), run:$run, durations:$dur[0], at:(now|todate)}' > s.json
           python3 ../r2.py put s.json "jobs/$ID.json"
       - name: Remove work files older than 7 days
