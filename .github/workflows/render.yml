@@ -76,9 +76,35 @@ jobs:
             echo "shards=[]" >> "$GITHUB_OUTPUT"
           fi
 
-  tevoice:   # Telugu in CHIJOBHA's copied voice, split over many machines
+  tegpu:     # Telugu voice on a free Kaggle GPU first (~2-5 min); if anything fails, tevoice (16 CPU machines) takes over
     needs: prep
     if: ${{ needs.prep.outputs.shards != '[]' && needs.prep.outputs.shards != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      ok: ${{ steps.k.outputs.ok }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: k
+        continue-on-error: true
+        env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ] || { echo "no Kaggle secrets - using CPU machines"; exit 0; }
+          case "$KAGGLE_KEY" in KGAT_*) export KAGGLE_API_TOKEN="$KAGGLE_KEY";; esac
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
+          pip install -q kaggle
+          python3 kaggle_voice.py w sentences.json te-gpu.tgz "te-voice-$ID"
+          python3 r2.py put te-gpu.tgz "work/$ID/$RUN/te/te-gpu.tgz"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+  tevoice:   # Telugu in CHIJOBHA's copied voice, split over many machines (fallback when the Kaggle GPU is unavailable)
+    needs: [prep, tegpu]
+    if: ${{ always() && needs.prep.result == 'success' && needs.prep.outputs.shards != '[]' && needs.prep.outputs.shards != '' && needs.tegpu.outputs.ok != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -102,8 +128,8 @@ jobs:
           python3 r2.py put te-${{ matrix.shard }}.tgz "work/$ID/${{ github.run_id }}/te/te-${{ matrix.shard }}.tgz"
 
   plan:
-    needs: [prep, tevoice]
-    if: ${{ always() && needs.prep.result == 'success' && (needs.tevoice.result == 'success' || needs.tevoice.result == 'skipped') }}
+    needs: [prep, tegpu, tevoice]
+    if: ${{ always() && needs.prep.result == 'success' && (needs.tegpu.outputs.ok == 'true' || needs.tevoice.result == 'success' || (needs.tevoice.result == 'skipped' && needs.prep.outputs.shards == '[]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
