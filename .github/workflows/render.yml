@@ -161,6 +161,8 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
       - name: Audio, join, master, deliver
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/finish.log") 2>&1; set -x
+          trap 'tail -c 6000 "$RUNNER_TEMP/finish.log" > "$RUNNER_TEMP/tail.txt"; python3 $GITHUB_WORKSPACE/r2.py put "$RUNNER_TEMP/tail.txt" "work/$(jq -r .video_id $GITHUB_WORKSPACE/queue/request.json)/$GITHUB_RUN_ID/finish-log.txt"' ERR
           R=$PWD/queue/request.json; COMP=$(jq -r .comp $R); ID=$(jq -r .video_id $R); CH=$(jq -r .chapter_id $R); L=$(jq -r '.lang // "en"' $R)
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
           cd w && npm ci --no-audit --no-fund --silent
