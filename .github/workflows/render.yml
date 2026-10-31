@@ -221,11 +221,13 @@ jobs:
             (cd public/fonts && bash get_fonts.sh >/dev/null) && npm ci --no-audit --no-fund --silent
             npx remotion render src/index.tsx "$(jq -r .comp $R)" "chunk-${{ matrix.range }}.mp4" --frames=${{ matrix.range }} --muted --codec=h264 --crf=18 --concurrency=100% --log=error
             python3 $GITHUB_WORKSPACE/r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
+            bash $GITHUB_WORKSPACE/finalize_piece.sh "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks"
             exit 0
           fi
           cd w && npm ci --no-audit --no-fund --silent
           npx remotion render src/index.ts "$(jq -r .comp $R)" "chunk-${{ matrix.range }}.mp4" --frames=${{ matrix.range }} --muted --codec=h264 --crf=18 --concurrency=100% --log=error
           python3 $GITHUB_WORKSPACE/r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
+          bash $GITHUB_WORKSPACE/finalize_piece.sh "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks"
 
   finish:
     needs: [plan, chunk]
@@ -241,7 +243,7 @@ jobs:
           python3 r2.py get "work/$ID/$RUN/voice-all.tgz" v.tgz
           [ -n "$(jq -r '.proj // empty' $R)" ] || { mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice; }
           mkdir -p w/chunks; for k in $(python3 r2.py list "work/$ID/$RUN/chunks/" | awk '{print $3}'); do python3 r2.py get "$k" "w/chunks/$(basename $k)"; done
-          WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length); GOT=$(ls w/chunks/*.mp4 | wc -l)
+          WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length); GOT=$(ls w/chunks/chunk-*.mp4 | wc -l)
           [ "$GOT" = "$WANT" ] || { echo "pieces: got $GOT of $WANT"; exit 1; }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
@@ -260,10 +262,22 @@ jobs:
           npx remotion render src/index.ts "$COMP" audio.wav --codec=wav --log=error
           cp public/voice/$L/$(basename "$(jq -r .lesson $R)" .ts)/durations.json durations.json
           fi
-          ls chunks/*.mp4 | sort -t- -k2 -n | sed "s|^|file '$PWD/|; s|$|'|" > list.txt
+          WANT=$(echo '${{ needs.plan.outputs.ranges }}' | jq length)
+          if [ "$(ls chunks/hd-*.mp4 2>/dev/null | wc -l)" = "$WANT" ] && [ "$(ls chunks/sd-*.mp4 2>/dev/null | wc -l)" = "$WANT" ]; then
+            # fast path (1 Nov 2026): pictures were already encoded by the 16 chunk machines — join only, master the audio once
+            ffmpeg -v error -y -i audio.wav -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k a_hd.m4a
+            ffmpeg -v error -y -i audio.wav -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -ac 1 -c:a aac -b:a 96k a_sd.m4a
+            for Q in hd sd; do
+              ls chunks/$Q-chunk-*.mp4 | sort -t- -k3 -n | sed "s|^|file '$PWD/|; s|$|'|" > list_$Q.txt
+              ffmpeg -v error -y -f concat -safe 0 -i list_$Q.txt -c copy v_$Q.mp4
+              ffmpeg -v error -y -i v_$Q.mp4 -i a_$Q.m4a -map 0:v -map 1:a -shortest -c copy -movflags +faststart $Q.mp4
+            done
+          else
+          ls chunks/chunk-*.mp4 | sort -t- -k2 -n | sed "s|^|file '$PWD/|; s|$|'|" > list.txt
           ffmpeg -v error -y -f concat -safe 0 -i list.txt -c copy video.mp4
           ffmpeg -v error -y -i video.mp4 -i audio.wav -map 0:v -map 1:a -shortest -c:v libx264 -preset medium -tune animation -crf 22 -maxrate 3M -bufsize 6M -pix_fmt yuv420p -af loudnorm=I=-14:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 192k -movflags +faststart hd.mp4
           ffmpeg -v error -y -i hd.mp4 -vf scale=-2:480 -c:v libx264 -preset veryfast -crf 26 -profile:v main -pix_fmt yuv420p -c:a aac -b:a 96k -ac 1 -movflags +faststart sd.mp4
+          fi
           python3 $GITHUB_WORKSPACE/r2.py put hd.mp4 "$CH/$ID-hd.mp4"
           python3 $GITHUB_WORKSPACE/r2.py put sd.mp4 "$CH/$ID-sd.mp4"
           DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
