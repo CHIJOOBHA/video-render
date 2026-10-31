@@ -41,7 +41,7 @@ jobs:
           done | while read rid sha; do
             [ "$rid" -lt "$GITHUB_RUN_ID" ] || continue
             other=$(gh api "repos/$GITHUB_REPOSITORY/contents/queue/request.json?ref=$sha" -q .content | base64 -d | jq -r .video_id)
-            [ "$other" = "$ID" ] && { echo "cancel older run $rid"; gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$rid/cancel" || true; }
+            if [ "$other" = "$ID" ]; then echo "cancel older run $rid"; gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$rid/cancel" || true; fi
           done
       - name: Status → started
         run: |
