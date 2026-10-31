@@ -9,6 +9,7 @@
 #   timings + Bit's mouth data are built in `plan` and passed to the pieces.
 # "reuse": "<run_id>" — take that earlier run's voice (voice-all.tgz) and finished pieces instead of making them again
 #   (e.g. only the last step failed). Pieces missing there are rendered as usual.
+# "redo": ["05.3.2", ...] + "te_from": "<run_id>" — voice only these sentences again; all others come from that run's voice.
 name: render
 run-name: ${{ github.event.head_commit.message || 'render (manual)' }}
 on:
@@ -61,6 +62,10 @@ jobs:
           if [ -n "$(jq -r '.reuse // empty' $R)" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [ -n "$P" ]; then
             python3 $P/tools/te_timeline.py sentences sentences.json
+            if [ "$(jq -r '.redo // [] | length' $R)" != "0" ]; then
+              jq --argjson keep "$(jq -c '.redo' $R)" 'with_entries(select(.key as $k | $keep | index($k)))' sentences.json > s2.json && mv s2.json sentences.json
+              echo "re-voicing $(jq length sentences.json) sentences"
+            fi
             python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
             N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"; exit 0
           fi
@@ -152,7 +157,10 @@ jobs:
               python3 r2.py get "work/$ID/$U/voice-all.tgz" voice-all.tgz && cd w/$P && tar -xzf $GITHUB_WORKSPACE/voice-all.tgz
             else
             pip install -q soundfile numpy && sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
-            mkdir te; for k in $(python3 r2.py list "work/$ID/$RUN/te/" | awk '{print $3}'); do python3 r2.py get "$k" t.tgz && tar -xzf t.tgz -C te; done
+            mkdir te
+            for RR in $(jq -r '.te_from // empty' $R) $RUN; do   # earlier run's voice first, then this run's re-voiced lines on top
+              for k in $(python3 r2.py list "work/$ID/$RR/te/" | awk '{print $3}'); do python3 r2.py get "$k" t.tgz && tar -xzf t.tgz -C te; done
+            done
             cd w/$P
             python3 tools/te_timeline.py build $GITHUB_WORKSPACE/te
             python3 tools/amp.py public/voice_te.wav src/ep/amp_te.json
