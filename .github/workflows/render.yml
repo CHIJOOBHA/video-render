@@ -179,6 +179,14 @@ jobs:
           LID=$(basename "$(jq -r .lesson $R)" .ts); V=w/public/voice/$L; mkdir -p $V/$LID
           if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then
             python3 r2.py get "$(jq -r .voice_tar $R)" v.tgz && tar -xzf v.tgz -C $V/$LID
+            # "voice_patch": "voice/x.tgz" — a few re-voiced <scene>_<i>.wav laid over the voice above (one bad Telugu line
+            # re-made without re-voicing the rest); durations.json is rebuilt from the wavs (1 Nov 2026)
+            if [ "$(jq -r '.voice_patch // empty' $R)" != "" ]; then
+              pip install -q soundfile
+              python3 r2.py get "$(jq -r .voice_patch $R)" p.tgz && tar -xzf p.tgz -C $V/$LID
+              (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" ../sentences.json)
+              python3 w/tools/durations.py sentences.json $V/$LID
+            fi
           elif [ "$L" = "te" ]; then
             pip install -q soundfile
             python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
