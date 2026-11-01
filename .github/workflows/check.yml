@@ -41,6 +41,7 @@ jobs:
         id: ps
         continue-on-error: true
         run: |
+          set +e   # a failed check must still print and save its report (bash -e stopped here before)
           python3 check_te.py audio.wav sentences.json durations.json "${{ inputs.lang }}" per_sentence.json > ps.txt; rc=$?
           while read -r l; do echo "::notice title=per-sentence::$l"; done < ps.txt
           python3 r2.py put per_sentence.json "work/${{ inputs.video_id }}/check-$GITHUB_RUN_ID/per_sentence.json"
@@ -49,6 +50,7 @@ jobs:
         id: qf
         continue-on-error: true
         run: |
+          set +e
           python3 w/tools/qa_final.py audio.wav sentences.json "${{ inputs.lang }}" report.md > /dev/null; rc=$?
           echo "::notice title=qa_final::$(sed -n 2p report.md)"
           grep -o "MISSING/GARBLED [^ ]* (match [0-9.]*)" report.md | head -10 | while read -r l; do echo "::warning title=qa_final::$l"; done || true
