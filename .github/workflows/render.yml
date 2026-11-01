@@ -75,7 +75,8 @@ jobs:
           if [ "$L" = "te" ]; then
             N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
           else
-            pip install -q kokoro-onnx soundfile wordfreq
+            python3 -m pip install -q kokoro-onnx soundfile wordfreq || python3 -m pip install -q --break-system-packages kokoro-onnx soundfile wordfreq
+            python3 -c "import wordfreq, kokoro_onnx, soundfile"   # fail early and clearly if the English voice tools are missing
             sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg espeak-ng >/dev/null
             KOKORO_DIR=$HOME/kokoro-model bash tools/setup_kokoro.sh
             KOKORO_DIR=$HOME/kokoro-model OUT=$RUNNER_TEMP bash tools/chapter.sh voice "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$(jq -r .comp $R)" "$(jq -r '.voice // "roki-in50"' $R)"
