@@ -1,4 +1,4 @@
-# Final checks on a FINISHED Journal video (Roach Academia), run on demand. Contains NO course content.
+# Final voice checks on a FINISHED Journal video (its run's sound track) (Roach Academia), run on demand. Contains NO course content.
 # The workspace that builds videos cannot download finished videos (storage is not reachable from it), so the final
 # voice checks run here: tools/qa_final.py (whole video, EN) and check_te.py (each sentence cut and transcribed alone;
 # the check for Telugu, also run for English). Results: notices on the run + reports in private storage
@@ -27,19 +27,21 @@ jobs:
         with: { node-version: 22 }
       - name: Video, project, timings
         run: |
-          python3 r2.py get "${{ inputs.chapter_id }}/${{ inputs.video_id }}-hd.mp4" hd.mp4
-          python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "jobs/${{ inputs.video_id }}.json" job.json
+          # the finished video folder is closed to this runner; the run's own sound track (the exact audio muxed into the video,
+          # before loudness mastering) is in work/<id>/<run>/audio.wav and is all the voice checks need
+          python3 r2.py get "work/${{ inputs.video_id }}/$(jq -r .run job.json)/audio.wav" audio.wav
+          python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
           jq .durations job.json > durations.json
           (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "${{ inputs.lesson }}" "${{ inputs.spec }}" "${{ inputs.lang }}" ../sentences.json)
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
           pip install -q faster-whisper numpy
-          echo "::notice title=video::duration $(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)s · black stretches over 1s: $(ffmpeg -v info -i hd.mp4 -vf 'blackdetect=d=1.0:pix_th=0.10' -an -f null - 2>&1 | grep -c black_start || true)"
+          echo "::notice title=audio::sound track $(ffprobe -v error -show_entries format=duration -of csv=p=0 audio.wav)s (run $(jq -r .run job.json))"
       - name: Per-sentence voice check
         id: ps
         continue-on-error: true
         run: |
-          python3 check_te.py hd.mp4 sentences.json durations.json "${{ inputs.lang }}" per_sentence.json > ps.txt; rc=$?
+          python3 check_te.py audio.wav sentences.json durations.json "${{ inputs.lang }}" per_sentence.json > ps.txt; rc=$?
           while read -r l; do echo "::notice title=per-sentence::$l"; done < ps.txt
           python3 r2.py put per_sentence.json "work/${{ inputs.video_id }}/check-$GITHUB_RUN_ID/per_sentence.json"
           exit $rc
@@ -47,7 +49,7 @@ jobs:
         id: qf
         continue-on-error: true
         run: |
-          python3 w/tools/qa_final.py hd.mp4 sentences.json "${{ inputs.lang }}" report.md > /dev/null; rc=$?
+          python3 w/tools/qa_final.py audio.wav sentences.json "${{ inputs.lang }}" report.md > /dev/null; rc=$?
           echo "::notice title=qa_final::$(sed -n 2p report.md)"
           grep -o "MISSING/GARBLED [^ ]* (match [0-9.]*)" report.md | head -10 | while read -r l; do echo "::warning title=qa_final::$l"; done || true
           python3 r2.py put report.md "work/${{ inputs.video_id }}/check-$GITHUB_RUN_ID/qa_final.md"
