@@ -17,8 +17,9 @@ def http(url, body=None):
 def models():
     names = [m["name"].split("/")[-1] for m in http(f"{API}/models?pageSize=200")["models"]
              if "generateContent" in m.get("supportedGenerationMethods", [])]
-    pref = [r"^gemini-3[\d.]*-pro$", r"^gemini-3[\d.]*-pro-preview", r"^gemini-2\.5-pro$",
-            r"^gemini-3[\d.]*-flash$", r"^gemini-3[\d.]*-flash-preview", r"^gemini-2\.5-flash$"]
+    names = [n for n in names if not re.search(r"customtools|image|tts|live|audio|embedding|lite", n)]
+    # free tier (4 Nov 2026): Pro models answer 429 "quota" on a free key, so Flash first; Pro kept as a last try
+    pref = [r"^gemini-[\d.]+-flash$", r"^gemini-[\d.]+-flash-preview", r"^gemini-2\.5-flash$", r"^gemini-[\d.]+-pro"]
     out = []
     for p in pref:
         out += [n for n in sorted(names, reverse=True) if re.search(p, n) and n not in out]
@@ -67,14 +68,19 @@ def main():
                 "number of beats per scene, in order. Rewrite every beat by the recipe: complete flowing teacher sentences, "
                 "every fact of the old beat kept, explained and connected; nothing added.")
         prompt, done = base, None
-        for attempt in range(6):
-            model = order[min(attempt // 2, len(order) - 1)]
+        for attempt in range(8):
+            if not order: break
+            model = order[0]
             try:
                 out = ask(model, prompt)
             except urllib.error.HTTPError as e:
-                msg = e.read()[:300].decode("utf-8", "ignore")
-                log.append(f"group {gi} {model}: HTTP {e.code} {msg}")
-                time.sleep(30 if e.code == 429 else 5); continue
+                msg = e.read()[:400].decode("utf-8", "ignore")
+                log.append(f"group {gi} {model}: HTTP {e.code} {msg[:160]}")
+                if e.code == 404 or (e.code == 429 and ("limit: 0" in msg or "PerDay" in msg)):
+                    order.pop(0)                      # no free quota for this model today: next model
+                else:
+                    time.sleep(40 if e.code == 429 else 5)
+                continue
             except Exception as e:
                 log.append(f"group {gi} {model}: {e}"); time.sleep(5); continue
             errs = check(g, out)
