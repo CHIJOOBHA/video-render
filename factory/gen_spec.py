@@ -322,10 +322,17 @@ def _size(spec):
             if l.get("p") == "tiles" and isinstance(l.get("items"), list):
                 its = l["items"]; hl = max((_len(i.get("h")) for i in its), default=8); tl = max((_len(i.get("t")) for i in its), default=0)
                 w = max(420, int(max(hl * 29, tl * 21)) + 70)
-                l["cols"] = 1 if w > 760 or len(its) <= 2 and w > 600 else min(l.get("cols") or 2, 3 if w < 520 else 2, 2 if len(its) == 4 else 3)
+                l["cols"] = 1 if w > 760 or len(its) <= 3 else min(l.get("cols") or 2, 3 if w < 520 else 2, 2 if len(its) == 4 else 3)   # 1-3 tiles stacked: a row of 2 wide tiles filled 20% of the picture
                 l["w"] = w
                 nl = max((len(str((i.get("t") or {}).get("en", i.get("t")) if isinstance(i.get("t"), dict) else i.get("t") or "").split("|")) if i.get("t") else 0) for i in its)
-                l["h"] = 130 + 50 * nl
+                l["h"] = 130 + 50 * nl + (60 if len(its) <= 3 else 0)
+            if l.get("p") == "sheet":      # a document wide enough for its lines (they wrap to 2 lines beyond that)
+                ls = [l.get("title"), l.get("sub")] + list(l.get("lines") or [])
+                l["w"] = max(520, min(900, max((_len(x) for x in ls if x), default=10) * 17 + 100))
+            if l.get("p") == "bars" and isinstance(l.get("bars"), list):   # few bars are drawn wider (2 bars were a sliver)
+                n = len(l["bars"]); l["bw"] = max(150, min(300, int(1000 / max(1, n)) - 70)); l["gap"] = 70
+                top = max((b.get("v") or 0 for b in l["bars"] if isinstance(b.get("v"), (int, float))), default=0)
+                if top > 0 and isinstance(l.get("max"), (int, float)) and l["max"] > 1.25 * top: l["max"] = round(top * 1.1, 4)   # tallest bar near the top
             if l.get("p") == "flow" and isinstance(l.get("nodes"), list):
                 l["w"] = max(560, max((_len(n.get("t")) for n in l["nodes"]), default=10) * 26 + 80)
             if l.get("p") == "tally" and isinstance(l.get("items"), list):
@@ -334,11 +341,19 @@ def _size(spec):
                 its = l.get("events") or l.get("items") or []
                 l["w"] = max(l.get("w") or 0, 900, max((max(_len(i.get("t")), _len(i.get("name")), _len(i.get("role"))) for i in its), default=10) * 24 + 200)
                 if l["p"] == "dates": l["w"] = max(l["w"], 330 * (len(its) + 1))
-        n = 0
+        # notes column: a fresh page when the next line would run past the bottom (each note's wrapped lines counted —
+        # 7 notes of two lines each overflowed, 4 Nov 2026). Column ~590 px wide, 40 px text: ~33 Latin / ~26 Telugu chars a line.
+        used = 0
         for it in d.get("items") or []:
-            if it.get("clear"): n = 0
-            n += 1
-            if n > 7: it["clear"] = True; n = 1
+            if it.get("clear"): used = 0
+            def hgt(v, big=False):
+                t = re.sub(r"\*\*", "", str(v.get("en", "") if isinstance(v, dict) else v or ""))
+                tt = re.sub(r"\*\*", "", str(v.get("te", "") if isinstance(v, dict) else ""))
+                n = max(1, -(-len(t) // 33), -(-len(tt) // 26))
+                return n * (64 if big else 50) + 18
+            h = hgt(it.get("h"), True) + 10 if it.get("h") else hgt(it.get("t")) + (110 if it.get("big") else 0) + (60 if it.get("a") else 0)
+            if used and used + h > 760: it["clear"] = True; used = 0
+            used += h
     return spec
 
 # ---------------------------------------------------------------- notes -> chunks
