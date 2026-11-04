@@ -67,7 +67,10 @@ jobs:
           cd w
           if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
           P=$(jq -r '.proj // empty' $R)
-          if [ -n "$(jq -r '.reuse // empty' $R)" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -n "$(jq -r '.reuse // empty' $R)" ]; then
+            python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$(jq -r .reuse $R)/sentences.json" s.json 2>/dev/null && python3 $GITHUB_WORKSPACE/r2.py put s.json "work/$ID/$GITHUB_RUN_ID/sentences.json" || true
+            echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if [ -n "$P" ]; then
             python3 $P/tools/te_timeline.py sentences sentences.json
             if [ "$(jq -r '.redo // [] | length' $R)" != "0" ]; then
@@ -418,7 +421,8 @@ jobs:
           # run voiced (work/<id>/<run>/sentences.json), BEFORE anything reaches the app. English: qa_final (whole video) must hear
           # every sentence; per-sentence check reported too. Telugu: per-sentence check, every sentence >= 0.6.
           set +x; set +e
-          python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/sentences.json" sentences.json
+          python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/sentences.json" sentences.json || \
+            python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$(jq -r '.reuse // .te_from // empty' $R)/sentences.json" sentences.json   # voice reused from that run
           pip install -q faster-whisper numpy >/dev/null
           python3 $GITHUB_WORKSPACE/check_te.py audio.wav sentences.json durations.json "$L" per_sentence.json > ps.txt; PS=$?
           python3 $GITHUB_WORKSPACE/r2.py put per_sentence.json "work/$ID/$GITHUB_RUN_ID/per_sentence.json"
