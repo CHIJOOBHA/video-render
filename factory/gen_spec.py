@@ -104,9 +104,10 @@ def coverage(notes, scenes):
     screen = " ".join(t for sc in scenes for v in sc.get("visuals") or [] for t in texts(v))
     low = re.sub(r"[\s-]+", " ", spoken.lower())
     names, nums = set(), set()
+    notes = re.sub(r"^(#+\s*)\d+(?:\.\d+)*\s+", r"\1", notes, flags=re.M)     # section numbers are not spoken (teacher-script rule)
     for w in re.findall(r"\b[A-Z][A-Za-z'’]+|\b[A-Z]{2,}\b", notes):
         k = re.sub(r"['’]s$", "", w.lower())
-        if len(k) > 2 and (w.isupper() or zipf_frequency(k, "en") < 3.2): names.add(w)
+        if len(k) > 2 and not re.fullmatch(r"[IVX]+", w) and (w.isupper() or zipf_frequency(k, "en") < 3.2): names.add(w)
     for n in re.findall(r"(?<![\w.])\d[\d,]*(?:\.\d+)?", notes):
         if n.strip(",") not in ("0", "1"): nums.add(n.strip(","))
     def said(w):

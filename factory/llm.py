@@ -62,7 +62,7 @@ def _anthropic(prompt, tag):
     cut = max(prompt.find("\n\n# WHERE WE ARE"), prompt.find("\n\n# THIS PART"), prompt.find("\n\n# SCENES"))
     blocks = ([{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": prompt[cut:]}]
               if cut > 4000 else [{"type": "text", "text": prompt}])
-    body = {"model": model, "max_tokens": 32000, "temperature": 0.5,
+    body = {"model": model, "max_tokens": 32000,
             "system": "You write exam-class video lessons. Answer with ONE JSON object only — no prose, no code fence.",
             "messages": [{"role": "user", "content": blocks}]}
     for n in range(6):
