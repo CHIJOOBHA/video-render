@@ -89,6 +89,11 @@ jobs:
             sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg espeak-ng >/dev/null
             KOKORO_DIR=$HOME/kokoro-model bash tools/setup_kokoro.sh
             for py in $HOME/kokoro-model/*/bin/python3; do [ -x "$py" ] && "$py" -m pip install -q wordfreq || true; done   # if setup made its own Python
+            # new words (factory word lists) are heard back first; a word that cannot be made clear stops the render (rule 5)
+            sudo python3 -m pip install -q --break-system-packages faster-whisper
+            set +e; KOKORO_DIR=$HOME/kokoro-model python3 -I tools/pron_listen.py sentences.json $RUNNER_TEMP/pron.json "$(jq -r '.voice // "roki-in50"' $R)"; PR=$?; set -e
+            python3 $GITHUB_WORKSPACE/r2.py put $RUNNER_TEMP/pron.json "work/$ID/$GITHUB_RUN_ID/pron.json"
+            [ $PR = 0 ] || { echo "::error title=new words::$(jq -r '.unclear | join(", ")' $RUNNER_TEMP/pron.json) not heard clearly — fix their spelling"; exit 1; }
             KOKORO_DIR=$HOME/kokoro-model OUT=$RUNNER_TEMP bash tools/chapter.sh voice "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$(jq -r .comp $R)" "$(jq -r '.voice // "roki-in50"' $R)"
             tar -czf en-voice.tgz -C public/voice/en .
             python3 $GITHUB_WORKSPACE/r2.py put en-voice.tgz "work/$ID/$GITHUB_RUN_ID/en-voice.tgz"
@@ -275,6 +280,48 @@ jobs:
           python3 $GITHUB_WORKSPACE/r2.py put "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks/chunk-${{ matrix.range }}.mp4"
           bash $GITHUB_WORKSPACE/finalize_piece.sh "chunk-${{ matrix.range }}.mp4" "work/$ID/${{ github.run_id }}/chunks"
 
+  qa:        # screen checks on the FINAL timeline, run beside the picture pieces (CLAUDE.md rules 3-4; 4 Nov 2026 for every part):
+             # qa_layout (fill, notes column), qa_timeline (empty / overlap / off-page), qa_sentences (2 stills per sentence +
+             # text check: off-picture, spilling out of a board, written over, too small). A failure keeps the video out of the app.
+    needs: [prep, plan]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && fromJson(needs.prep.outputs.req).proj == null }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: |
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
+      - name: Project + voice
+        run: |
+          R=queue/request.json; ID=$(jq -r .video_id $R)
+          python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz
+          mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice
+          sudo python3 -m pip install -q --break-system-packages num2words numpy pillow
+          L=$(jq -r '.lesson // empty' $R)
+          case "$L" in src/lessons/auto/auto-*) python3 factory/sync.py "w/src/lessons/auto/$(basename $L .ts | sed 's/^auto-//').json";; esac
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Layout, timeline, every sentence
+        run: |
+          R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R); COMP=$(jq -r .comp $R)
+          LID=$(basename "$(jq -r .lesson $R)" .ts); D=public/voice/$L/$LID/durations.json
+          cd w && npm ci --no-audit --no-fund --silent
+          set +e
+          python3 tools/qa_layout.py $D $COMP $RUNNER_TEMP/lay > lay.txt 2>&1; a=$?
+          QA_LANG=$L QA_TMP=$RUNNER_TEMP python3 tools/qa_timeline.py "$(jq -r .lesson $R)" "$(jq -r .spec $R)" $D > tl.txt 2>&1; b=$?
+          python3 tools/qa_sentences.py $D $COMP $RUNNER_TEMP/sen > sen.txt 2>&1; c=$?
+          set -e
+          echo "::notice title=layout::$(tail -1 lay.txt)"; echo "::notice title=timeline::$(tail -1 tl.txt) ($(grep -c . tl.txt) lines)"; echo "::notice title=sentences::$(tail -1 sen.txt)"
+          cat lay.txt tl.txt sen.txt > qa-report.txt
+          python3 $GITHUB_WORKSPACE/r2.py put qa-report.txt "work/$ID/${{ github.run_id }}/qa/report.txt"
+          for f in $RUNNER_TEMP/sen/sheet-*.png $RUNNER_TEMP/sen/text-check.json; do python3 $GITHUB_WORKSPACE/r2.py put "$f" "work/$ID/${{ github.run_id }}/qa/$(basename $f)"; done
+          echo "{\"layout\":$a,\"timeline\":$b,\"sentences\":$c}" > qa.json; python3 $GITHUB_WORKSPACE/r2.py put qa.json "work/$ID/${{ github.run_id }}/qa/result.json"
+          [ $a = 0 ] && [ $b = 0 ] && [ $c = 0 ]
+
   audio:     # the sound track is rendered at the same time as the picture pieces (was done after them in finish)
     needs: [prep, plan]
     if: ${{ !cancelled() && needs.plan.result == 'success' && fromJson(needs.prep.outputs.req).proj == null }}
@@ -303,7 +350,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/r2.py put audio.wav "work/$ID/${{ github.run_id }}/audio.wav"
 
   finish:
-    needs: [plan, chunk, audio]
+    needs: [plan, chunk, audio, qa]
     if: ${{ !cancelled() && needs.chunk.result == 'success' && needs.audio.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -366,6 +413,32 @@ jobs:
             --slurpfile dur durations.json \
             '{state:"done", runner:"public", duration:($d|tonumber), hd_bytes:($hd|tonumber), sd_bytes:($sd|tonumber), run:$run, durations:$dur[0], at:(now|todate)}' > s.json
           python3 $GITHUB_WORKSPACE/r2.py put s.json "jobs/$ID.json"
+          [ -n "$P" ] && exit 0
+          # ---- Journal videos (4 Nov 2026): the voice checks run HERE, on this run's own sound track and the exact sentences this
+          # run voiced (work/<id>/<run>/sentences.json), BEFORE anything reaches the app. English: qa_final (whole video) must hear
+          # every sentence; per-sentence check reported too. Telugu: per-sentence check, every sentence >= 0.6.
+          set +x; set +e
+          python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/sentences.json" sentences.json
+          pip install -q faster-whisper numpy >/dev/null
+          python3 $GITHUB_WORKSPACE/check_te.py audio.wav sentences.json durations.json "$L" per_sentence.json > ps.txt; PS=$?
+          python3 $GITHUB_WORKSPACE/r2.py put per_sentence.json "work/$ID/$GITHUB_RUN_ID/per_sentence.json"
+          QF=0
+          if [ "$L" = "en" ]; then
+            python3 tools/qa_final.py audio.wav sentences.json en report.md > /dev/null; QF=$?
+            python3 $GITHUB_WORKSPACE/r2.py put report.md "work/$ID/$GITHUB_RUN_ID/qa_final.md"
+            echo "::notice title=qa_final::$(sed -n 2p report.md)"
+            grep -o "MISSING/GARBLED [^ ]* (match [0-9.]*)" report.md | head -10 | while read -r l; do echo "::warning title=qa_final::$l"; done
+            VOICE=$QF
+          else VOICE=$PS; fi
+          while read -r l; do echo "::notice title=per-sentence::$l"; done < ps.txt
+          QA="${{ needs.qa.result }}"
+          set -e
+          if [ "$VOICE" != 0 ] || [ "$QA" != success ]; then
+            jq --arg why "voice check $VOICE · screen checks $QA" '.state = "blocked" | .why = $why' s.json > s2.json && mv s2.json s.json
+            python3 $GITHUB_WORKSPACE/r2.py put s.json "jobs/$ID.json"
+            echo "::error title=blocked::$ID not sent to the app — voice check $VOICE, screen checks $QA (reports in work/$ID/$GITHUB_RUN_ID/)"
+            exit 1
+          fi
           # video factory: a request with a title becomes a DRAFT row in the app's Video tab (CHIJOBHA publishes)
           if [ -n "$(jq -r '.title // empty' $R)" ]; then
             python3 $GITHUB_WORKSPACE/r2.py draft "$(jq -c --arg d "$DUR" '{id: .video_id, chapter_id, part: (.part // 1), title, lang: (.lang // "en"), duration_sec: ($d|tonumber)}' $R)"

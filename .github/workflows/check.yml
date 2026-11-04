@@ -33,7 +33,10 @@ jobs:
           python3 r2.py get "work/${{ inputs.video_id }}/$(jq -r .run job.json)/audio.wav" audio.wav
           python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
           jq .durations job.json > durations.json
-          (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "${{ inputs.lesson }}" "${{ inputs.spec }}" "${{ inputs.lang }}" ../sentences.json)
+          # the sentences THIS video voiced (saved by its render run); older runs without that file: export from src
+          if ! python3 r2.py get "work/${{ inputs.video_id }}/$(jq -r .run job.json)/sentences.json" sentences.json 2>/dev/null; then
+            (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "${{ inputs.lesson }}" "${{ inputs.spec }}" "${{ inputs.lang }}" ../sentences.json)
+          fi
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
           pip install -q faster-whisper numpy
           echo "::notice title=audio::sound track $(ffprobe -v error -show_entries format=duration -of csv=p=0 audio.wav)s (run $(jq -r .run job.json))"

@@ -1,4 +1,5 @@
-"""Teach once, reuse everywhere (4 Nov 2026). The same notes text appears in several subjects (APPSC EO and Group 2 share
+"""Teach once, reuse everywhere (4 Nov 2026). v2 (4 Nov, later): pieces written before the voice / screen / script fixes are
+not reused (they live on under library/<kind>/ for reference only). The same notes text appears in several subjects (APPSC EO and Group 2 share
 much of polity, economy, history, current affairs...). Every finished English piece and every Telugu scene is saved under a
 fingerprint of its notes/English text in private storage jobs/factory/library/<kind>/<key>.json; the next time the SAME
 text comes up — in any subject — it is reused with no AI call. Different text (even one word) is written fresh."""
@@ -13,7 +14,7 @@ def key(text):
 def get(kind, k):
     if os.environ.get("NO_LIBRARY"): return None
     f = tempfile.mktemp()
-    r = subprocess.run(["python3", R2, "get", f"jobs/factory/library/{kind}/{k}.json", f], capture_output=True)
+    r = subprocess.run(["python3", R2, "get", f"jobs/factory/library/v2/{kind}/{k}.json", f], capture_output=True)
     if r.returncode or not os.path.exists(f): return None
     try: return json.load(open(f, encoding="utf-8"))
     except Exception: return None
@@ -23,5 +24,5 @@ def get(kind, k):
 def put(kind, k, obj):
     f = tempfile.mktemp(suffix=".json")
     json.dump(obj, open(f, "w", encoding="utf-8"), ensure_ascii=False)
-    subprocess.run(["python3", R2, "put", f, f"jobs/factory/library/{kind}/{k}.json"], capture_output=True)
+    subprocess.run(["python3", R2, "put", f, f"jobs/factory/library/v2/{kind}/{k}.json"], capture_output=True)
     os.remove(f)

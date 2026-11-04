@@ -9,6 +9,11 @@ import numpy as np
 vid, sj, dj, lang, out = sys.argv[1:6]
 S = json.load(open(sj, encoding='utf-8')); D = json.load(open(dj))
 LEAD, GAP, HOLD, TAIL = 6, 9, 10, 30
+# 4 Nov 2026: the sentences must be the ones this video voiced (a later script of the same part once gave a false 12/93)
+diff = [k for k in S if len(S[k]) != len(D.get(k, []))] + [k for k in D if k not in S]
+if diff:
+    print(f"sentences do not match the voiced video ({len(S)} vs {len(D)} scenes; differ: {' '.join(diff[:8])}) — use this run's sentences.json")
+    sys.exit(2)
 t, spans = 0, []
 for k, (sc, ss) in enumerate(S.items()):
     t += LEAD

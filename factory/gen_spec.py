@@ -109,7 +109,10 @@ def coverage(notes, scenes):
     for w in re.findall(r"\b[A-Z][A-Za-z'’]+|\b[A-Z]{2,}\b", notes):
         k = re.sub(r"['’]s$", "", w.lower())
         if len(k) > 2 and not re.fullmatch(r"[IVX]+", w) and (w.isupper() or zipf_frequency(k, "en") < 3.2): names.add(w)
-    for n in re.findall(r"(?<![\w.])\d[\d,]*(?:\.\d+)?", notes):
+    ids = sec_ids(notes)
+    for n in re.findall(r"(?<![\w.])\d[\d,]*(?:\.\d+)?[a-z]?", notes):
+        if n in ids or n.rstrip("abcdefgh") in ids: continue
+        n = n.rstrip("abcdefgh")
         if n.strip(",") not in ("0", "1"): nums.add(n.strip(","))
     def said(w):
         k = re.sub(r"['’]s$", "", w.lower())
@@ -120,6 +123,21 @@ def coverage(notes, scenes):
     miss_nums = sorted(n for n in nums if not any(f in low for f in num_forms(n)) and n not in screen)
     nw = len(re.findall(r"\w+", re.sub(r"^#.*$", "", notes, flags=re.M))); sw = len(spoken.split())
     return miss_names, miss_nums, nw, sw
+
+def added_names(notes_all, scenes):
+    """Nothing added (LOCKED rule): a rare name or term spoken or shown that the notes of this part never use."""
+    from wordfreq import zipf_frequency
+    low = re.sub(r"[\s-]+", " ", notes_all.lower())
+    txt = " ".join([b["en"] for sc in scenes for b in sc.get("beats", []) if isinstance(b, dict) and isinstance(b.get("en"), str)] +
+                   [t for sc in scenes for v in sc.get("visuals") or [] for t in texts(v)] +
+                   [b["note"].get("t", "") for sc in scenes for b in sc.get("beats", []) if isinstance(b, dict) and isinstance(b.get("note"), dict)])
+    out = set()
+    for w in re.findall(r"\b[A-Z][A-Za-z'’]{2,}", txt):
+        k = re.sub(r"['’]s$", "", w.lower())
+        if zipf_frequency(k, "en") >= 3.2 or k in low: continue
+        if re.fullmatch(r"[A-Z]+", w) and " ".join(w).lower() in low: continue
+        out.add(w)
+    return sorted(out)
 
 # ---------------------------------------------------------------- spec building (EN now; TE filled by te_fill.py)
 def P(v): return {"en": str(v), "te": ""}
@@ -153,14 +171,58 @@ def speak_digits(t):
     """Any digits the writer left in SPOKEN English become words (same number, nothing changed): 1st -> first,
     4.2 -> four point two, 2026 -> twenty twenty-six, 45% -> forty-five per cent, ₹500 -> five hundred rupees."""
     from num2words import num2words
+    t = letters_digits(t)
     t = re.sub(r"(\d),(?=\d{2,3}\b)", r"\1", t)
     t = re.sub(r"₹\s?([\d.]+)((?:\s*(?:lakh|crore|thousand|million|billion))*)", lambda m: f"{m.group(1)}{m.group(2)} rupees", t)
     t = re.sub(r"(\d+)(st|nd|rd|th)\b", lambda m: num2words(int(m.group(1)), to="ordinal"), t)
+    t = re.sub(r"(\d)\s?%", r"\1 per cent", t)
     t = re.sub(r"(\d+)\.(\d+)", lambda m: num2words(int(m.group(1))) + " point " + " ".join(num2words(int(c)) for c in m.group(2)), t)
-    t = re.sub(r"(\d+)\s?%", r"\1 per cent", t)
+    t = re.sub(r"(\w)\s?–\s?(?=\w)", r"\1 to ", t)
     t = re.sub(r"(\d)\s?[–-]\s?(\d)", r"\1 to \2", t)
     t = re.sub(r"\d+", lambda m: num2words(int(m.group(0)), to="year") if 1100 <= int(m.group(0)) <= 2099 and len(m.group(0)) == 4
                else num2words(int(m.group(0))), t)
+    return t
+
+# ---------------------------------------------------------------- section / table numbers (teacher-script rule 2; CHIJOBHA 4 Nov 2026:
+# "section numbers like 1.2 are copied onto the signs"). Ids come from the notes themselves: "## 1.2 …", "Table 1.2a —", "Box 3.1".
+def sec_ids(md):
+    ids = set(re.findall(r"^#+\s*(\d+(?:\.\d+)+[a-z]?)\s", md, flags=re.M))
+    ids |= set(re.findall(r"\b(?:Table|Box|Figure|Section|Sec\.|§)\s*(\d+(?:\.\d+)+[a-z]?)", md))
+    return ids
+
+LABEL_ID = re.compile(r"\b(Table|Box|Figure|Section|Sec\.|§)\s*\d+(?:\.\d+)+[a-z]?\b\.?\s*[—–:·-]?\s*")
+
+def screen_clean(t, ids):
+    """On-screen text never shows a section / table number: '1.2 The written exam' -> 'The written exam',
+    'Table 1.2a — Events' -> 'Table — Events' -> 'Events', a bare 'Table 1.1' -> 'Table'."""
+    if not isinstance(t, str): return t
+    o = t
+    m = re.match(r"^\s*(\d+(?:\.\d+)+[a-z]?)(?![\d%])\s*[—–:·.-]?\s*", t)
+    if m and m.group(1) in ids: t = t[m.end():]
+    t = LABEL_ID.sub(lambda m: m.group(1) + " — ", t)
+    for i in sorted(ids, key=len, reverse=True):
+        t = re.sub(r"(?<![\d.])" + re.escape(i) + r"(?![\da-z%])(?!\s*(?:per\s*cent|%|crore|lakh))\s*[—–:·-]?\s*", "", t)
+    t = re.sub(r"^(Table|Box|Figure|Section)\s*—\s*(?=\S)", "", t.strip())
+    t = re.sub(r"\s*—\s*$", "", re.sub(r"\s{2,}", " ", t)).strip(" ·:—-")
+    return t or o
+
+def clean_screen(v, ids):
+    if isinstance(v, str): return screen_clean(v, ids)
+    if isinstance(v, list): return [clean_screen(x, ids) for x in v]
+    if isinstance(v, dict): return {k: (x if k in ("p", "k", "at", "out", "b", "cols", "max", "hi", "hiAt", "stampAt") else clean_screen(x, ids)) for k, x in v.items()}
+    return v
+
+def spoken_ids(t, ids):
+    """Section / table numbers left in SPOKEN text (before digits become words)."""
+    found = [m.group(0) for m in re.finditer(r"\b(?:Table|Box|Figure|Section|Sec\.|§)\s*\d+(?:\.\d+)+[a-z]?", t)]
+    found += [i for i in ids if re.search(r"(?<![\d.])" + re.escape(i) + r"(?![\da-z])(?!\s*(?:per\s*cent|%|crore|lakh|million|billion))", t)]
+    return found
+
+def letters_digits(t):
+    """G20 -> G twenty, COP28 -> COP twenty-eight, 5G -> five G: the number is spoken as a word, the letters stay letters."""
+    from num2words import num2words
+    t = re.sub(r"\b([A-Z]{1,6})-?(\d{1,4})\b", lambda m: f"{m.group(1)} {num2words(int(m.group(2)))}", t)
+    t = re.sub(r"\b(\d{1,3})([A-Z]{1,3})\b", lambda m: f"{num2words(int(m.group(1)))} {m.group(2)}", t)
     return t
 
 def build(part, scenes_in):
@@ -171,7 +233,9 @@ def build(part, scenes_in):
                "data": {"kicker": P(f"Chapter {ch} · Part {pt}"), "title": P(part["chapter_title"]),
                         "sub": P(" · ".join(secs[:3])[:90]), "art": "vimana"}}]
     nb_total = 0
+    ids = sec_ids(part.get("en", ""))
     for i, sc in enumerate(scenes_in):
+        sc = clean_screen(sc, ids)
         beats = sc["beats"]; nb = len(beats)
         layers = [{"p": "teFont", "at": 0}]
         vis = sorted([v for v in sc.get("visuals") or [] if isinstance(v, dict)], key=lambda v: v.get("at", 0))[:2]
@@ -231,14 +295,17 @@ def _size(spec):
         # a long list of wide tiles would shrink below readable size: show it 4 at a time, each group on its own beats
         new = []
         for l in d.get("layers") or []:
-            its = l.get("items") if l.get("p") == "tiles" else None
-            wide = its and max((_len(i.get("h")) for i in its), default=0) > 16
-            if its and len(its) > 4 and wide:
-                groups = [its[k:k + 4] for k in range(0, len(its), 4)]
+            # a time line with more than 3 dates is shown 3 at a time (5 on one line shrank the words below readable size)
+            key = "items" if l.get("p") == "tiles" else "events" if l.get("p") == "dates" else None
+            its = l.get(key) if key else None
+            wide = its and (key == "events" or max((_len(i.get("h")) for i in its), default=0) > 16)
+            G = 3 if key == "events" else 4
+            if its and len(its) > G and wide:
+                groups = [its[k:k + G] for k in range(0, len(its), G)]
                 starts = [l.get("at", 0)] + [int(g[0].get("a", 0)) for g in groups[1:]]
                 for gi, g in enumerate(groups):
-                    if gi and starts[gi] <= starts[gi - 1]: new[-1]["items"] += g; continue
-                    m = {**l, "items": g, "at": starts[gi]}
+                    if gi and starts[gi] <= starts[gi - 1]: new[-1][key] += g; continue
+                    m = {**l, key: g, "at": starts[gi]}
                     if gi + 1 < len(groups) and starts[gi + 1] > starts[gi]: m["out"] = starts[gi + 1]
                     elif "out" in l: m["out"] = l["out"]
                     else: m.pop("out", None)
@@ -258,10 +325,11 @@ def _size(spec):
             if l.get("p") == "flow" and isinstance(l.get("nodes"), list):
                 l["w"] = max(560, max((_len(n.get("t")) for n in l["nodes"]), default=10) * 26 + 80)
             if l.get("p") == "tally" and isinstance(l.get("items"), list):
-                l["w"] = max(300, max((max(_len(i.get("t")) * 19, _len(i.get("v")) * 44) for i in l["items"]), default=0) + 50)
+                l["w"] = 340      # 4 Nov 2026: words wrap inside the box; a box as wide as its longest word made 6 boxes unreadably small
             if l.get("p") in ("dates", "plaques"):
                 its = l.get("events") or l.get("items") or []
                 l["w"] = max(l.get("w") or 0, 900, max((max(_len(i.get("t")), _len(i.get("name")), _len(i.get("role"))) for i in its), default=10) * 24 + 200)
+                if l["p"] == "dates": l["w"] = max(l["w"], 330 * (len(its) + 1))
         n = 0
         for it in d.get("items") or []:
             if it.get("clear"): n = 0
@@ -285,10 +353,9 @@ def chunks(md, limit=520):
 SHAPE = """Return ONLY one JSON object (ENGLISH only — the Telugu is written later into the same beats):
 {"scenes": [{"kind": "card|trap|trick|diary", "kicker": "short label", "title": "scene title",
              "beats": [{"en": "spoken English", "note": {"t": "notes-column line"}}],
-             "visuals": [{"p": "tiles", "at": 0, "out": 4, "cols": 2, "items": [{"h": "title", "t": "subline", "b": 1}]}]}],
- "lexicon": {"Name": "Telugu spelling"}}
-All on-screen text and notes are plain English strings (not pairs). "lexicon": every name, place, title, abbreviation
-or non-English term you speak, with its Telugu spelling (abbreviations as spoken letters, e.g. "APPSC": "ఏపీపీఎస్సీ").
+             "visuals": [{"p": "tiles", "at": 0, "out": 4, "cols": 2, "items": [{"h": "title", "t": "subline", "b": 1}]}]}]}
+All on-screen text and notes are plain English strings (not pairs). Never put a section or table number (1.2, Table 1.2a)
+in speech or on screen: say "this table", "the next section", or name the topic.
 Each scene teaches one idea in 3–9 beats. A beat = 1–3 spoken sentences (15–40 words)."""
 
 def main():
@@ -300,6 +367,8 @@ def main():
              open(os.path.join(HERE, "menu.md"), encoding="utf-8").read())
     rules = rules.replace('All text is a pair `["English", "Telugu"]`.', "All text is plain English (Telugu is added later).")
     pieces = chunks(part["en"])
+    ids = sec_ids(part["en"])
+    if part.get("next"): part["next"] = screen_clean(str(part["next"]), ids)
     all_scenes, lex, report, blocking = [], {}, [], []
     for ci, piece in enumerate(pieces):
         first, last = ci == 0, ci == len(pieces) - 1
@@ -336,12 +405,18 @@ def main():
             new = ask(prompt, f"piece {ci + 1}/{len(pieces)} round {rnd}", prefer=("anthropic", "deepseek", "gemini"))
             if isinstance(new, dict) and isinstance(new.get("scenes"), list) and new["scenes"]:
                 out = new
+                said_ids = sorted({x for sc in out["scenes"] for b in sc.get("beats") or [] if isinstance(b, dict) and isinstance(b.get("en"), str)
+                                   for x in spoken_ids(b["en"], ids)})
                 for sc in out["scenes"]:
                     for b in sc.get("beats") or []:
                         if isinstance(b, dict) and isinstance(b.get("en"), str) and re.search(r"\d", b["en"]): b["en"] = speak_digits(b["en"])
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
             errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
+            if said_ids: errs.append(f"section/table numbers spoken {said_ids} — never say a section or table number; say 'this table', "
+                                     "'the next section' or name its topic instead")
+            add = added_names(part["en"] + " " + part.get("chapter_title", ""), out["scenes"])
+            if add: errs.append(f"names/terms not in the notes {add} — nothing may be added; use only the notes' own names and terms")
             mn, mu, nw, sw = coverage(piece, out["scenes"])
             LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
                        f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")

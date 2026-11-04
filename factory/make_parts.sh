@@ -16,28 +16,31 @@ for J in $(ls parts/*.json | sort -V); do
   $R2 put out/$ID.md "jobs/factory/$SUBJ/$ID.md"; [ -f out/$ID.json ] && $R2 put out/$ID.json "jobs/factory/$SUBJ/$ID.json"
   if [ $RC != 0 ]; then echo "::warning title=$ID::BLOCKED — $(sed -n 5,6p out/$ID.md | tr '\n' ' ')"; echo "::endgroup::"; continue; fi
   ( cd w && python3 tools/auto_lesson.py $ID ../out/$ID.json )
-  [ -s out/$ID-lex.json ] && cp out/$ID-lex.json w/tools/lexicon/auto-$ID.json     # spellings Gemini gave with the plan
+  # 4 Nov 2026: each part starts from the hand-checked word lists only. The AI "lexicon" that comes with the script is NOT used
+  # (it mapped plain English to Telugu: us -> America), and no other part's auto list may leak into this part's source.
+  rm -f w/tools/lexicon/auto-*.json; echo '{}' > w/tools/lexicon/auto-$ID.json
   C="$(echo ${ID:0:1} | tr a-z A-Z)${ID:1}"
   # English voice words: anything not ordinary English and not in the lists gets its Telugu spelling from the Telugu notes
   ( cd w && node tools/export_sentences.mjs src/lessons/auto/auto-$ID.ts auto${C}Spec en ../out/$ID-en.json >/dev/null )
   MISS=$(cd w && python3 -I tools/missing_terms.py ../out/$ID-en.json | sed 's/^missing: //; s/^none$//')
   if [ -n "$MISS" ]; then
-    python3 $F/lex_fill.py $J "$MISS" out/$ID-lex2.json && jq -s 'add' w/tools/lexicon/auto-$ID.json out/$ID-lex2.json > l.json 2>/dev/null || cp out/$ID-lex2.json l.json
-    mv l.json w/tools/lexicon/auto-$ID.json
+    python3 $F/lex_fill.py $J "$MISS" out/$ID-lex2.json && cp out/$ID-lex2.json w/tools/lexicon/auto-$ID.json   # heard back by pron_listen.py before voicing
     LEFT=$(cd w && python3 -I tools/missing_terms.py ../out/$ID-en.json | sed 's/^missing: //; s/^none$//')
     if [ -n "$LEFT" ]; then
       echo "- voice words with no spelling yet (blocking): $LEFT" >> out/$ID.md; $R2 put out/$ID.md "jobs/factory/$SUBJ/$ID.md"
       echo "::warning title=$ID::BLOCKED — new words: $LEFT"; echo "::endgroup::"; continue
     fi
   fi
+  # one source per factory run: a later run of the same part never changes the source an earlier render or check uses
+  SRCK="work/factory/src/$ID-$GITHUB_RUN_ID.tgz"
   tar -czf out/$ID-src.tgz --exclude=node_modules --exclude=.git -C w .
-  $R2 put out/$ID-src.tgz "work/factory/src/$ID.tgz"
+  $R2 put out/$ID-src.tgz "$SRCK"
   SECS=$(jq -r '[.sections[] | sub("^[0-9.]+ "; "")] | join(", ")' $J | cut -c1-150)
   for L in en te; do
     C2=$(printf %02d $CH)      # app chapter ids are two-digit: ce-en-ch01
     jq -nc --arg id "$PFX-$L-ch$C2-p$P" --arg ch "$PFX-$L-ch$C2" --arg lesson "src/lessons/auto/auto-$ID.ts" \
       --arg spec "auto${C}Spec" --arg comp "Auto${C}$(echo $L | tr a-z A-Z)" --arg lang $L --arg t "Ch $CH · Part $P · $SECS" --argjson p $P \
-      '{video_id: $id, chapter_id: $ch, src: "work/factory/src/'$ID'.tgz", lesson: $lesson, spec: $spec, comp: $comp, lang: $lang,
+      '{video_id: $id, chapter_id: $ch, src: "'$SRCK'", lesson: $lesson, spec: $spec, comp: $comp, lang: $lang,
         chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {} end)' > out/$ID-$L.req
   done
   if [ "${RENDER:-yes}" = "yes" ]; then
