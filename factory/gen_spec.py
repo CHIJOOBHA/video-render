@@ -11,6 +11,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 KEY = os.environ["GEMINI_API_KEY"]
 API = "https://generativelanguage.googleapis.com/v1beta"
 LOG = []
+class _Log(list):
+    def append(self, x):
+        print("  ·", x, flush=True); super().append(x)
+LOG = _Log()
 
 # ---------------------------------------------------------------- Gemini
 def http(url, body=None, timeout=900):
@@ -52,7 +56,8 @@ def ask(prompt, tag):
             elif e.code >= 500: time.sleep(10 + 5 * n)
             else: ORDER.pop(0)
         except (json.JSONDecodeError, KeyError, IndexError) as e:
-            LOG.append(f"{tag}: {m} bad answer {e}"); time.sleep(3)
+            fin = (r.get("candidates") or [{}])[0].get("finishReason") if isinstance(locals().get("r"), dict) else None
+            LOG.append(f"{tag}: {m} bad answer {type(e).__name__} {e} finish={fin} usage={r.get('usageMetadata') if isinstance(locals().get('r'), dict) else None}"); time.sleep(3)
         except Exception as e:
             LOG.append(f"{tag}: {m} {e}"); time.sleep(10)
     raise SystemExit(f"{tag}: Gemini gave no usable answer")
