@@ -1,9 +1,9 @@
 #!/bin/bash
 # Start the renders of ONE factory part (4 Nov 2026): English at once; Telugu after its lines are written into the same scenes
 # (te_fill.py). Used by part.yml (a chapter remade by hand, e.g. the Chapter 1 proof) — the queues are not touched.
-# Usage: start_part.sh <subject> <part_id e.g. ce1p2> <src key work/factory/src/<part>-<run>.tgz> <app prefix> <en|te|both>
+# Usage: start_part.sh <subject> <part_id e.g. ce1p2> <src key work/factory/src/<part>-<run>.tgz> <app prefix> <en|te|both> [TE voice run to reuse]
 set -eu
-SUBJ=$1; PID=$2; SRC=$3; PFX=$4; WHICH=${5:-both}
+SUBJ=$1; PID=$2; SRC=$3; PFX=$4; WHICH=${5:-both}; TEREUSE=${6:-}
 R2="python3 $GITHUB_WORKSPACE/r2.py"; F=$GITHUB_WORKSPACE/factory
 CH=$(echo $PID | sed -E 's/^[a-z]+([0-9]+)p[0-9]+$/\1/'); P=$(echo $PID | sed -E 's/^.*p([0-9]+)$/\1/'); C2=$(printf %02d $CH)
 mkdir -p w parts && $R2 get "$SRC" s.tgz && tar -xzf s.tgz -C w
@@ -27,5 +27,5 @@ if [ "$WHICH" != en ]; then
   fi
   TESRC="${SRC%.tgz}-te.tgz"
   tar -czf te.tgz --exclude=node_modules -C w . && $R2 put te.tgz "$TESRC"
-  go "$(req te "$TESRC")"
+  if [ -n "$TEREUSE" ]; then go "$(req te "$TESRC" | jq -c --arg r "$TEREUSE" '. + {reuse: $r}')"; else go "$(req te "$TESRC")"; fi
 fi

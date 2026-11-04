@@ -9,6 +9,7 @@ on:
       prefix: { default: 'ce' }
       parts: { description: 'part=src pairs, e.g. ce1p1=work/factory/src/ce1p1-123.tgz,ce1p2=…', required: true }
       which: { description: 'en | te | both', default: 'both' }
+      te_reuse: { description: 'Telugu voices to reuse: part=run pairs, e.g. ce1p1=41818501704', default: '' }
 permissions: { contents: read, actions: write, id-token: write }
 jobs:
   start:
@@ -25,5 +26,6 @@ jobs:
         run: |
           for PS in $(echo "${{ inputs.parts }}" | tr ',' ' '); do
             rm -rf w parts s.tgz te.tgz
-            bash factory/start_part.sh "${{ inputs.subject }}" "${PS%%=*}" "${PS#*=}" "${{ inputs.prefix }}" "${{ inputs.which }}"
+            RU=$(echo ",${{ inputs.te_reuse }}," | grep -o ",${PS%%=*}=[0-9]*," | tr -d , | cut -d= -f2 || true)
+            bash factory/start_part.sh "${{ inputs.subject }}" "${PS%%=*}" "${PS#*=}" "${{ inputs.prefix }}" "${{ inputs.which }}" "$RU"
           done
