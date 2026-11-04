@@ -183,8 +183,59 @@ def build(part, scenes_in):
                        "data": {"v": sc.get("kind") if sc.get("kind") in ("card", "trap", "trick", "diary") else "card",
                                 "kicker": P(sc.get("kicker") or ""), "title": P(sc.get("title") or ""), "layers": layers, "items": items}})
         nb_total += nb
-    return {"subject": "current-affairs", "source": {"en": part["source"][0], "te": part["source"][1]}, "te_pending": True,
-            "scenes": scenes}, nb_total + 1
+    return size_spec({"subject": "current-affairs", "source": {"en": part["source"][0], "te": part["source"][1]}, "te_pending": True,
+            "scenes": scenes}), nb_total + 1
+
+# ---------------------------------------------------------------- layout fixes (both languages; run again after Telugu)
+def _len(v):
+    if isinstance(v, dict): return max((max(len(x) for x in str(t).split("|")) for t in v.values() if t), default=0)
+    return max((len(x) for x in str(v or "").split("|")), default=0)
+
+def size_spec(spec):
+    """Boxes grow with their longest words (drawings are scaled to fit afterwards, so nothing spills out); the first drawing
+    starts on the first beat (no empty picture); the notes column turns a page every 7 lines (nothing runs off the bottom)."""
+    for sc in spec["scenes"]:
+        d = sc.get("data") or {}
+        # a long list of wide tiles would shrink below readable size: show it 4 at a time, each group on its own beats
+        new = []
+        for l in d.get("layers") or []:
+            its = l.get("items") if l.get("p") == "tiles" else None
+            wide = its and max((_len(i.get("h")) for i in its), default=0) > 16
+            if its and len(its) > 4 and wide:
+                groups = [its[k:k + 4] for k in range(0, len(its), 4)]
+                starts = [l.get("at", 0)] + [int(g[0].get("a", 0)) for g in groups[1:]]
+                for gi, g in enumerate(groups):
+                    if gi and starts[gi] <= starts[gi - 1]: new[-1]["items"] += g; continue
+                    m = {**l, "items": g, "at": starts[gi]}
+                    if gi + 1 < len(groups) and starts[gi + 1] > starts[gi]: m["out"] = starts[gi + 1]
+                    elif "out" in l: m["out"] = l["out"]
+                    else: m.pop("out", None)
+                    new.append(m)
+            else: new.append(l)
+        d["layers"] = new
+        lays = [l for l in d.get("layers") or [] if l.get("p") != "teFont"]
+        if lays and lays[0].get("at", 0) != 0: lays[0]["at"] = 0
+        for l in lays:
+            if l.get("p") == "tiles" and isinstance(l.get("items"), list):
+                its = l["items"]; hl = max((_len(i.get("h")) for i in its), default=8); tl = max((_len(i.get("t")) for i in its), default=0)
+                w = max(420, int(max(hl * 29, tl * 21)) + 70)
+                l["cols"] = 1 if w > 760 or len(its) <= 2 and w > 600 else min(l.get("cols") or 2, 3 if w < 520 else 2, 2 if len(its) == 4 else 3)
+                l["w"] = w
+                nl = max((len(str((i.get("t") or {}).get("en", i.get("t")) if isinstance(i.get("t"), dict) else i.get("t") or "").split("|")) if i.get("t") else 0) for i in its)
+                l["h"] = 130 + 50 * nl
+            if l.get("p") == "flow" and isinstance(l.get("nodes"), list):
+                l["w"] = max(560, max((_len(n.get("t")) for n in l["nodes"]), default=10) * 26 + 80)
+            if l.get("p") == "tally" and isinstance(l.get("items"), list):
+                l["w"] = max(300, max((max(_len(i.get("t")) * 19, _len(i.get("v")) * 44) for i in l["items"]), default=0) + 50)
+            if l.get("p") in ("dates", "plaques"):
+                its = l.get("events") or l.get("items") or []
+                l["w"] = max(l.get("w") or 0, 900, max((max(_len(i.get("t")), _len(i.get("name")), _len(i.get("role"))) for i in its), default=10) * 24 + 200)
+        n = 0
+        for it in d.get("items") or []:
+            if it.get("clear"): n = 0
+            n += 1
+            if n > 7: it["clear"] = True; n = 1
+    return spec
 
 # ---------------------------------------------------------------- notes -> chunks
 def chunks(md, limit=520):

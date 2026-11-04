@@ -76,6 +76,8 @@ def main():
             prev += [s["text"]["te"] for s in sc["sentences"] if s["text"]["te"]]
             bad_total += [f"{sc['id']} beat {k}" for k, s in enumerate(sc["sentences"]) if not s["text"]["te"]]
     if not bad_total: spec.pop("te_pending", None)
+    from gen_spec import size_spec
+    size_spec(spec)                      # Telugu words are longer: boxes and pages re-fitted
     json.dump(spec, open(spec_f, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     with open(rep, "a", encoding="utf-8") as f:
         f.write(f"\n# Telugu — {'READY' if not bad_total else 'BLOCKED'}\nbeats without Telugu: {bad_total or 'none'}\n\n## Log\n" +
