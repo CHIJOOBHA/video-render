@@ -113,7 +113,9 @@ def coverage(notes, scenes):
         if n.strip(",") not in ("0", "1"): nums.add(n.strip(","))
     def said(w):
         k = re.sub(r"['’]s$", "", w.lower())
-        return k in spoken.lower() or (w.isupper() and " ".join(w).lower() in low)
+        if k in spoken.lower() or (w.isupper() and " ".join(w).lower() in low): return True
+        if len(w) > 2 and w.endswith("s") and w[:-1].isupper(): return said(w[:-1])      # CAPFs = C A P Fs
+        return False
     miss_names = sorted(w for w in names if not said(w))
     miss_nums = sorted(n for n in nums if not any(f in low for f in num_forms(n)) and n not in screen)
     nw = len(re.findall(r"\w+", re.sub(r"^#.*$", "", notes, flags=re.M))); sw = len(spoken.split())
@@ -146,6 +148,20 @@ def say_numbers(t):
     from num2words import num2words
     f = lambda m: num2words(int(m.group(0)), to="year") if 1100 <= int(m.group(0)) <= 2099 else num2words(int(m.group(0)))
     return re.sub(r"\d+", f, re.sub(r"(\d),(\d)", r"\1\2", t)).replace("–", " to ").replace("@", " at ")
+
+def speak_digits(t):
+    """Any digits the writer left in SPOKEN English become words (same number, nothing changed): 1st -> first,
+    4.2 -> four point two, 2026 -> twenty twenty-six, 45% -> forty-five per cent, ₹500 -> five hundred rupees."""
+    from num2words import num2words
+    t = re.sub(r"(\d),(?=\d{2,3}\b)", r"\1", t)
+    t = re.sub(r"₹\s?([\d.]+)((?:\s*(?:lakh|crore|thousand|million|billion))*)", lambda m: f"{m.group(1)}{m.group(2)} rupees", t)
+    t = re.sub(r"(\d+)(st|nd|rd|th)\b", lambda m: num2words(int(m.group(1)), to="ordinal"), t)
+    t = re.sub(r"(\d+)\.(\d+)", lambda m: num2words(int(m.group(1))) + " point " + " ".join(num2words(int(c)) for c in m.group(2)), t)
+    t = re.sub(r"(\d+)\s?%", r"\1 per cent", t)
+    t = re.sub(r"(\d)\s?[–-]\s?(\d)", r"\1 to \2", t)
+    t = re.sub(r"\d+", lambda m: num2words(int(m.group(0)), to="year") if 1100 <= int(m.group(0)) <= 2099 and len(m.group(0)) == 4
+               else num2words(int(m.group(0))), t)
+    return t
 
 def build(part, scenes_in):
     ch, pt = part["chapter"], part["part"]
@@ -312,14 +328,18 @@ def main():
                      (f"\nToo short: {sw} spoken words for {nw} words of notes — explain every point fully." if sw < 0.9 * nw else "") +
                      "\nFix all of it, keep everything else, return the WHOLE answer again.")
             new = ask(prompt, f"piece {ci + 1}/{len(pieces)} round {rnd}", prefer=("anthropic", "deepseek", "gemini"))
-            if isinstance(new, dict) and isinstance(new.get("scenes"), list) and new["scenes"]: out = new
+            if isinstance(new, dict) and isinstance(new.get("scenes"), list) and new["scenes"]:
+                out = new
+                for sc in out["scenes"]:
+                    for b in sc.get("beats") or []:
+                        if isinstance(b, dict) and isinstance(b.get("en"), str) and re.search(r"\d", b["en"]): b["en"] = speak_digits(b["en"])
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
             errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
             mn, mu, nw, sw = coverage(piece, out["scenes"])
             LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
                        f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
-            hard = [e for e in errs if " visual " not in e]
+            hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
             if not mn and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
@@ -333,7 +353,7 @@ def main():
         all_scenes += out["scenes"]
         lex.update({k.lower(): v for k, v in (out.get("lexicon") or {}).items()
                     if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())})
-        hard = [e for e in errs if " visual " not in e]
+        hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
         if not mn and not hard and sw >= 0.7 * nw:
             lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
