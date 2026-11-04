@@ -1,0 +1,29 @@
+# Start the renders of factory parts by hand (4 Nov 2026) — e.g. remaking one chapter as proof while the queues stay stopped.
+# English starts at once; Telugu lines are written first (te_fill.py), then its render starts. Contains NO course content.
+name: part
+run-name: part ${{ inputs.parts }} ${{ inputs.which }}
+on:
+  workflow_dispatch:
+    inputs:
+      subject: { default: 'current-events-2026' }
+      prefix: { default: 'ce' }
+      parts: { description: 'part=src pairs, e.g. ce1p1=work/factory/src/ce1p1-123.tgz,ce1p2=…', required: true }
+      which: { description: 'en | te | both', default: 'both' }
+permissions: { contents: read, actions: write, id-token: write }
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo python3 -m pip install -q --break-system-packages num2words wordfreq
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          for PS in $(echo "${{ inputs.parts }}" | tr ',' ' '); do
+            rm -rf w parts s.tgz te.tgz
+            bash factory/start_part.sh "${{ inputs.subject }}" "${PS%%=*}" "${PS#*=}" "${{ inputs.prefix }}" "${{ inputs.which }}"
+          done
