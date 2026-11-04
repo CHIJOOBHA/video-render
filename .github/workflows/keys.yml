@@ -7,12 +7,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Try each AI service
-        env: { DEEPSEEK_API_KEY: "${{ secrets.DEEPSEEK_API_KEY }}", DEEPSEEK_KEY: "${{ secrets.DEEPSEEK_KEY }}", DEEPSEEK: "${{ secrets.DEEPSEEK }}", DEEP_SEEK_API_KEY: "${{ secrets.DEEP_SEEK_API_KEY }}", META_API_KEY: "${{ secrets.META_API_KEY }}", META_KEY: "${{ secrets.META_KEY }}", META: "${{ secrets.META }}", LLAMA_API_KEY: "${{ secrets.LLAMA_API_KEY }}", LLAMA_KEY: "${{ secrets.LLAMA_KEY }}", META_LLAMA_API_KEY: "${{ secrets.META_LLAMA_API_KEY }}", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}" }
+        env: { ANTHROPIC_API_KEY: "${{ secrets.ANTHROPIC_API_KEY }}", CLAUDE_API_KEY: "${{ secrets.CLAUDE_API_KEY }}", DEEPSEEK_API_KEY: "${{ secrets.DEEPSEEK_API_KEY }}", DEEPSEEK_KEY: "${{ secrets.DEEPSEEK_KEY }}", DEEPSEEK: "${{ secrets.DEEPSEEK }}", DEEP_SEEK_API_KEY: "${{ secrets.DEEP_SEEK_API_KEY }}", META_API_KEY: "${{ secrets.META_API_KEY }}", META_KEY: "${{ secrets.META_KEY }}", META: "${{ secrets.META }}", LLAMA_API_KEY: "${{ secrets.LLAMA_API_KEY }}", LLAMA_KEY: "${{ secrets.LLAMA_KEY }}", META_LLAMA_API_KEY: "${{ secrets.META_LLAMA_API_KEY }}", GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}" }
         run: |
           python3 - <<'PY'
           import json, urllib.request, re
           import os
-          S = {k: os.environ[k] for k in ['DEEPSEEK_API_KEY', 'DEEPSEEK_KEY', 'DEEPSEEK', 'DEEP_SEEK_API_KEY', 'META_API_KEY', 'META_KEY', 'META', 'LLAMA_API_KEY', 'LLAMA_KEY', 'META_LLAMA_API_KEY', 'GEMINI_API_KEY'] if os.environ.get(k)}
+          S = {k: os.environ[k] for k in ['ANTHROPIC_API_KEY', 'CLAUDE_API_KEY', 'DEEPSEEK_API_KEY', 'DEEPSEEK_KEY', 'DEEPSEEK', 'DEEP_SEEK_API_KEY', 'META_API_KEY', 'META_KEY', 'META', 'LLAMA_API_KEY', 'LLAMA_KEY', 'META_LLAMA_API_KEY', 'GEMINI_API_KEY'] if os.environ.get(k)}
           print("saved:", sorted(S))
           def find(*pat):
               for k, v in S.items():
@@ -50,6 +50,18 @@ jobs:
               ids = models("Meta", "https://api.llama.com/v1/models", v)
               for m in (ids or ["Llama-4-Maverick-17B-128E-Instruct-FP8"])[:4]:
                   call("Meta", "https://api.llama.com/compat/v1/chat/completions", v, m)
+          k, v = find(r"anthropic", r"claude")
+          print("Anthropic secret:", k)
+          if v:
+              for m in ("claude-haiku-5-5",):
+                  body = {"model": m, "max_tokens": 400, "messages": [{"role": "user", "content": Q}]}
+                  req = urllib.request.Request("https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(),
+                        headers={"x-api-key": v, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+                  try:
+                      r = json.load(urllib.request.urlopen(req, timeout=120))
+                      print(f"OK  Anthropic {m}: {r['content'][0]['text'][:500]}\n    usage: {r.get('usage')}")
+                  except urllib.error.HTTPError as e:
+                      print(f"ERR Anthropic {m}: HTTP {e.code} {e.read()[:400]}")
           k, v = find(r"gemini")
           print("Gemini secret:", k)
           PY

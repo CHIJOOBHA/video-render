@@ -18,6 +18,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           R2="python3 r2.py"
           NEXT=$($R2 list work/factory/te-queue/ | awk '{print $3}' | sort | head -1)

@@ -51,7 +51,7 @@ def main():
         fixes = {}
         for rnd in range(3):
             out = ask(base if rnd == 0 else base + "\n\n# FIX ONLY THESE\n" + json.dumps(fixes, ensure_ascii=False),
-                      f"te group {gi + 1}/{len(groups)} round {rnd}", prefer=("gemini",))   # Telugu: Gemini only (best Telugu); waits for quota
+                      f"te group {gi + 1}/{len(groups)} round {rnd}", prefer=("gemini", "anthropic"))   # Telugu: Gemini only (best Telugu); waits for quota
             if not isinstance(out, dict): continue
             fixes = {}
             for sc in g:

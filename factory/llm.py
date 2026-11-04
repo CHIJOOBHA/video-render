@@ -1,4 +1,5 @@
 """Model access for the video factory (4 Nov 2026). Two providers, used together:
+- Anthropic (Claude Haiku via the Max plan's monthly API credits; env ANTHROPIC_API_KEY) — English scripts, first choice.
 - DeepSeek (paid, very cheap; env DEEPSEEK_API_KEY, optional DEEPSEEK_MODEL) — English scripts, no tight daily cap.
 - Gemini (free tier; env GEMINI_API_KEY) — Telugu, and English when DeepSeek has no key/credit. Free quota is small
   (gemini-3.8-flash: 20 requests/day), so every free model is tried in turn.
@@ -49,6 +50,42 @@ def _deepseek(prompt, tag):
             LOG.append(f"{tag}: deepseek {e}"); time.sleep(10)
     return None
 
+# ---------------------------------------------------------------- Anthropic (Max plan monthly API credits)
+AN_DEAD = False
+def _anthropic(prompt, tag):
+    """Claude via the API (env ANTHROPIC_API_KEY, model ANTHROPIC_MODEL, default claude-haiku-5-5). The fixed rules at the
+    start of every prompt (before '# WHERE WE ARE' / '# THIS PART') are cached, so each later call pays ~1/10 for them."""
+    global AN_DEAD
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key or AN_DEAD: return None
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-5-5")
+    cut = max(prompt.find("\n\n# WHERE WE ARE"), prompt.find("\n\n# THIS PART"), prompt.find("\n\n# SCENES"))
+    blocks = ([{"type": "text", "text": prompt[:cut], "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": prompt[cut:]}]
+              if cut > 4000 else [{"type": "text", "text": prompt}])
+    body = {"model": model, "max_tokens": 32000, "temperature": 0.5,
+            "system": "You write exam-class video lessons. Answer with ONE JSON object only — no prose, no code fence.",
+            "messages": [{"role": "user", "content": blocks}]}
+    for n in range(6):
+        t0 = time.time()
+        try:
+            r = _post("https://api.anthropic.com/v1/messages", body, {"x-api-key": key, "anthropic-version": "2023-06-01"})
+            u = r.get("usage", {})
+            LOG.append(f"{tag}: anthropic/{model} {time.time() - t0:.0f}s in={u.get('input_tokens')} cache_read={u.get('cache_read_input_tokens')} "
+                       f"cache_write={u.get('cache_creation_input_tokens')} out={u.get('output_tokens')} stop={r.get('stop_reason')}")
+            txt = "".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
+            i, j = txt.find("{"), txt.rfind("}")
+            return json.loads(txt[i:j + 1])
+        except urllib.error.HTTPError as e:
+            msg = re.sub(r"\s+", " ", e.read()[:800].decode("utf-8", "ignore"))
+            LOG.append(f"{tag}: anthropic HTTP {e.code} {msg[:300]}")
+            if e.code in (400, 401, 403, 404) or "credit balance" in msg: AN_DEAD = True; return None
+            time.sleep(15 * (n + 1))                      # 429 / 529 overloaded: wait and retry
+        except (json.JSONDecodeError, KeyError, IndexError, ValueError) as e:
+            LOG.append(f"{tag}: anthropic bad answer {type(e).__name__} {e}"); time.sleep(2)
+        except Exception as e:
+            LOG.append(f"{tag}: anthropic {e}"); time.sleep(10)
+    return None
+
 # ---------------------------------------------------------------- Gemini (free tier)
 G_ORDER = []
 def _g_models(key):
@@ -93,11 +130,11 @@ def _gemini(prompt, tag):
             LOG.append(f"{tag}: gemini/{m} {e}"); time.sleep(10)
     return None
 
-def ask(prompt, tag, prefer=("deepseek", "gemini")):
+def ask(prompt, tag, prefer=("anthropic", "deepseek", "gemini")):
     for p in prefer:
-        out = (_deepseek if p == "deepseek" else _gemini)(prompt, tag)
+        out = {"anthropic": _anthropic, "deepseek": _deepseek, "gemini": _gemini}[p](prompt, tag)
         if out is not None: return out
     raise SystemExit(f"{tag}: no model could answer (DeepSeek key/credit? Gemini daily quota?)")
 
 def available():
-    return [p for p, k in (("deepseek", "DEEPSEEK_API_KEY"), ("gemini", "GEMINI_API_KEY")) if os.environ.get(k, "").strip()]
+    return [p for p, k in (("anthropic", "ANTHROPIC_API_KEY"), ("deepseek", "DEEPSEEK_API_KEY"), ("gemini", "GEMINI_API_KEY")) if os.environ.get(k, "").strip()]

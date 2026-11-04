@@ -240,7 +240,7 @@ def main():
                      (f"\nNumbers never spoken as words: {mu}" if mu else "") +
                      (f"\nToo short: {sw} spoken words for {nw} words of notes — explain every point fully." if sw < 0.9 * nw else "") +
                      "\nFix all of it, keep everything else, return the WHOLE answer again.")
-            new = ask(prompt, f"piece {ci + 1}/{len(pieces)} round {rnd}", prefer=("deepseek", "gemini"))
+            new = ask(prompt, f"piece {ci + 1}/{len(pieces)} round {rnd}", prefer=("anthropic", "deepseek", "gemini"))
             if isinstance(new, dict) and isinstance(new.get("scenes"), list) and new["scenes"]: out = new
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"

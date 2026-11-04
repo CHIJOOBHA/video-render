@@ -12,7 +12,7 @@ ans = ask("These English words appear in an English lesson; the matching Telugu 
             "is written in Telugu script — the spelling the Telugu notes use for that name or term when they have it, otherwise "
             "the natural Telugu spelling of how an Indian teacher says it (every vowel written; for an abbreviation spell the "
             "letters, e.g. 'APPSC' -> 'ఏపీపీఎస్సీ'). Return ONLY JSON {\"word\": \"తెలుగు\"}.\n\nWORDS: " + " ".join(words) +
-            "\n\n# TELUGU NOTES\n" + part["te"][:60000], "lexicon", prefer=("deepseek", "gemini"))
+            "\n\n# TELUGU NOTES\n" + part["te"][:60000], "lexicon", prefer=("anthropic", "deepseek", "gemini"))
 lex = {k.lower(): v for k, v in (ans or {}).items() if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())}
 json.dump(lex, open(out, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 print(f"lexicon: {len(lex)}/{len(words)} words", "missing:", [w for w in words if w.lower() not in lex], "|", "; ".join(LOG))
