@@ -25,8 +25,10 @@ def http(url, body=None, timeout=900):
 def models():
     names = [m["name"].split("/")[-1] for m in http(f"{API}/models?pageSize=200")["models"]
              if "generateContent" in m.get("supportedGenerationMethods", [])]
-    names = [n for n in names if not re.search(r"customtools|image|tts|live|audio|embedding|lite|robotics|computer", n)]
-    pref = [r"^gemini-[\d.]+-flash$", r"^gemini-[\d.]+-flash-preview", r"^gemini-2\.5-flash$", r"^gemini-[\d.]+-pro"]
+    names = [n for n in names if not re.search(r"customtools|image|tts|live|audio|embedding|robotics|computer|gemma|nano|learnlm", n)]
+    # free tier (4 Nov 2026): each model has its own small daily request quota (gemini-3.8-flash: 20/day), so every
+    # flash model is a separate allowance — newest first, then older flash, pro, lite last
+    pref = [r"^gemini-[\d.]+-flash$", r"^gemini-[\d.]+-flash-(preview|latest)", r"^gemini-flash-latest$", r"^gemini-[\d.]+-pro", r"^gemini-[\d.]+-flash-lite"]
     out = []
     for p in pref:
         out += [n for n in sorted(names, reverse=True) if re.search(p, n) and n not in out]
@@ -39,7 +41,7 @@ def ask(prompt, tag):
     if not ORDER: ORDER = models(); LOG.append(f"models: {ORDER[:4]}")
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.5, "responseMimeType": "application/json", "maxOutputTokens": 65536}}
-    for n in range(20):
+    for n in range(40):
         if not ORDER: raise SystemExit("no Gemini model has free quota left today")
         m = ORDER[0]; t0 = time.time()
         try:
@@ -53,7 +55,7 @@ def ask(prompt, tag):
             if e.code == 404 or (e.code == 429 and re.search(r"limit\W+0\b|PerDay|per day|RESOURCE_EXHAUSTED.*free_tier.*input_token", msg)): ORDER.pop(0)
             elif e.code == 429:
                 w = re.search(r'retryDelay"?:\s*"?(\d+)', msg); time.sleep(int(w.group(1)) + 2 if w else 30)
-            elif e.code >= 500: time.sleep(10 + 5 * n)
+            elif e.code >= 500: ORDER.append(ORDER.pop(0)); time.sleep(5)   # busy model: try the next one
             else: ORDER.pop(0)
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             fin = (r.get("candidates") or [{}])[0].get("finishReason") if isinstance(locals().get("r"), dict) else None
@@ -228,6 +230,8 @@ SHAPE = """Return ONLY one JSON object:
  "scenes": [{"kind": "card|trap|trick|diary", "kicker": [en, te], "title": [en, te],
              "beats": [{"en": "spoken English", "te": "spoken Telugu", "note": {"t": [en, te]} }],
              "visuals": [{"p": "tiles", "at": 0, "out": 4, "cols": 2, "items": [{"h": [en, te], "t": [en, te], "b": 1}]}]}]}
+Also "lexicon": {"English word": "Telugu spelling"} for EVERY name, place, title, abbreviation or non-English term
+you speak in English (spelled as the Telugu notes write it; abbreviations as spoken letters, e.g. "APPSC": "ఏపీపీఎస్సీ").
 `card.say` is the first spoken line (chapter and part name, what this part covers).
 Each scene teaches one idea in 3–9 beats. A beat = 1–3 spoken sentences (15–40 English words)."""
 
@@ -257,14 +261,14 @@ def main():
         mn, mu = coverage(part, plan["scenes"])
         LOG.append(f"round {rnd}: {len(plan['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in plan['scenes'])} beats, "
                    f"{len(errs)} rule errors, missing names {len(mn)}, numbers {len(mu)}")
-        if not errs and not mn and not mu: break
+        if not mn and not [e for e in errs if " visual " not in e] and len(errs) <= 6: break   # visual slips are fixed by code
         bad = sorted({e.split(" ")[0].rstrip(":") for e in errs})
         fix = ("# YOUR CURRENT LESSON (JSON)\n" + json.dumps(plan, ensure_ascii=False) + "\n\n# PROBLEMS FOUND BY THE CHECKER\n" +
                "\n".join(errs[:80]) +
                (f"\nThese names/terms of the English notes are never SPOKEN in English — teach each where the notes have it: {mn}" if mn else "") +
                (f"\nThese numbers of the English notes are never SPOKEN (as words) in English — say each where it belongs: {mu}" if mu else "") +
                "\n\nFix every problem; change nothing else. Return the WHOLE corrected lesson JSON in the same shape.")
-        if rnd == 4: break
+        if rnd == 2: break
         new = ask(base + "\n\n" + fix, f"repair {rnd + 1}")
         if isinstance(new, dict) and isinstance(new.get("scenes"), list): plan = new
     errs = [x for sc in plan["scenes"] for x in scene_errs(sc)]
@@ -278,6 +282,8 @@ def main():
                               "items": [{"h": [re.sub(r"\*\*", "", h[0])[:44], re.sub(r"\*\*", "", h[1])[:44]], "b": k} for k, h in enumerate(hs)] or
                                        [{"h": sc.get("title") or ["", ""], "b": 0}]}]
     blocking = [e for e in errs if " visual " not in e]
+    lex = {k.lower(): v for k, v in (plan.get("lexicon") or {}).items() if isinstance(v, str) and re.fullmatch(r"[\u0C00-\u0C7F\u200c\s'-]+", v.strip())}
+    json.dump(lex, open(out_spec.replace(".json", "-lex.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     spec, nb = build(part, plan)
     json.dump(spec, open(out_spec, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     ok = not blocking and not mn

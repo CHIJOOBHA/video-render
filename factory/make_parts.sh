@@ -15,12 +15,14 @@ for J in $(ls parts/*.json | sort -V); do
   $R2 put out/$ID.md "jobs/factory/$SUBJ/$ID.md"; [ -f out/$ID.json ] && $R2 put out/$ID.json "jobs/factory/$SUBJ/$ID.json"
   if [ $RC != 0 ]; then echo "::warning title=$ID::BLOCKED — $(sed -n 5,6p out/$ID.md | tr '\n' ' ')"; echo "::endgroup::"; continue; fi
   ( cd w && python3 tools/auto_lesson.py $ID ../out/$ID.json )
+  [ -s out/$ID-lex.json ] && cp out/$ID-lex.json w/tools/lexicon/auto-$ID.json     # spellings Gemini gave with the plan
   C="$(echo ${ID:0:1} | tr a-z A-Z)${ID:1}"
   # English voice words: anything not ordinary English and not in the lists gets its Telugu spelling from the Telugu notes
   ( cd w && node tools/export_sentences.mjs src/lessons/auto/auto-$ID.ts auto${C}Spec en ../out/$ID-en.json >/dev/null )
   MISS=$(cd w && python3 -I tools/missing_terms.py ../out/$ID-en.json | sed 's/^missing: //; s/^none$//')
   if [ -n "$MISS" ]; then
-    python3 $F/lex_fill.py $J "$MISS" w/tools/lexicon/auto-$ID.json
+    python3 $F/lex_fill.py $J "$MISS" out/$ID-lex2.json && jq -s 'add' w/tools/lexicon/auto-$ID.json out/$ID-lex2.json > l.json 2>/dev/null || cp out/$ID-lex2.json l.json
+    mv l.json w/tools/lexicon/auto-$ID.json
     LEFT=$(cd w && python3 -I tools/missing_terms.py ../out/$ID-en.json | sed 's/^missing: //; s/^none$//')
     if [ -n "$LEFT" ]; then
       echo "- voice words with no spelling yet (blocking): $LEFT" >> out/$ID.md; $R2 put out/$ID.md "jobs/factory/$SUBJ/$ID.md"
