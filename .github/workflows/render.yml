@@ -249,6 +249,10 @@ jobs:
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/${{ github.run_id }}/voice-all.tgz" v.tgz
           [ -n "$(jq -r '.proj // empty' $R)" ] || { mkdir -p w/public/voice && tar -xzf v.tgz -C w/public/voice; }
+          # factory lessons: each picture element appears when its own words are spoken (4 Nov 2026, factory/sync.py)
+          L=$(jq -r '.lesson // empty' $R)
+          case "$L" in src/lessons/auto/auto-*) sudo python3 -m pip install -q --break-system-packages num2words >/dev/null 2>&1
+            python3 factory/sync.py "w/src/lessons/auto/$(basename $L .ts | sed 's/^auto-//').json";; esac
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: Render frames ${{ matrix.range }}

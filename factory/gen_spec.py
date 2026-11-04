@@ -218,6 +218,12 @@ def _len(v):
     return max((len(x) for x in str(v or "").split("|")), default=0)
 
 def size_spec(spec):
+    _size(spec)
+    from sync import sync_spec
+    sync_spec(spec)                      # every element appears when its own words are spoken (sync.py)
+    return spec
+
+def _size(spec):
     """Boxes grow with their longest words (drawings are scaled to fit afterwards, so nothing spills out); the first drawing
     starts on the first beat (no empty picture); the notes column turns a page every 7 lines (nothing runs off the bottom)."""
     for sc in spec["scenes"]:
