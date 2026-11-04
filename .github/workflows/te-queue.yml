@@ -20,7 +20,8 @@ jobs:
           for st in queued in_progress; do
             ACTIVE=$(( ACTIVE + $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/runs?status=$st&per_page=100" -q '.total_count') ))
           done
-          FREE=$(( 2 - ACTIVE )); echo "renders running: $ACTIVE"
+          MAX=$(cat queue/en-max 2>/dev/null || echo 2)      # queue/en-max: 0 pauses English renders (e.g. while scripts are written)
+          FREE=$(( MAX - ACTIVE )); echo "renders running: $ACTIVE (max $MAX)"
           for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | sort | head -n $(( FREE > 0 ? FREE : 0 ))); do
             $R2 get "$K" req.json
             gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)" \
@@ -41,6 +42,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           R2="python3 r2.py"
+          [ -f queue/paused ] && { echo "Telugu renders paused: $(cat queue/paused)"; exit 0; }
           NEXT=$($R2 list work/factory/te-queue/ | awk '{print $3}' | sort | head -1)
           [ -n "$NEXT" ] || { echo "Telugu queue empty"; exit 0; }
           if $R2 get jobs/factory/te-active.json act.json 2>/dev/null; then
