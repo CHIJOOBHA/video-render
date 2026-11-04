@@ -37,7 +37,7 @@ for J in $(ls parts/*.json | sort -V); do
         chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {} end)' > out/$ID-$L.req
   done
   if [ "${RENDER:-yes}" = "yes" ]; then
-    gh workflow run render.yml -R "$GITHUB_REPOSITORY" -f req="$(cat out/$ID-en.req)" && echo "EN render started: $PFX-en-ch$CH-p$P"
+    gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(cat out/$ID-en.req)" && echo "EN render started: $PFX-en-ch$CH-p$P"
     $R2 put out/$ID-te.req "work/factory/te-queue/$(printf '%s-%02d-%02d' "$SUBJ" "$CH" "$P").json" && echo "TE queued"
   fi
   echo "::notice title=$ID::READY — EN render started, TE queued"

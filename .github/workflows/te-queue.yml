@@ -27,7 +27,7 @@ jobs:
           $R2 get "$NEXT" req.json
           ID=$(jq -r .video_id req.json)
           echo '{"state":"queued"}' > st.json; $R2 put st.json "jobs/$ID.json"
-          gh workflow run render.yml -R "$GITHUB_REPOSITORY" -f req="$(jq -c . req.json)"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)"
           jq -n --arg id "$ID" --arg at "$(date -u +%FT%TZ)" '{video_id: $id, at: $at}' > act.json
           $R2 put act.json jobs/factory/te-active.json && $R2 rm "$NEXT"
           echo "started Telugu render $ID; left in queue: $($R2 list work/factory/te-queue/ | wc -l)"
