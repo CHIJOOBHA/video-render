@@ -82,8 +82,40 @@ def sync_scene(sc):
         it["at"] = round(max(it["at"], prev), 3); prev = it["at"]
     return moved
 
+LISTK = ("items", "nodes", "rungs", "bars", "parts", "branches", "events", "signs", "pins")
+
+def no_empty_picture(sc):
+    """4 Nov 2026 (qa_timeline found 17-40 s of empty picture in factory parts): the drawings of a stage scene follow each
+    other with no gap and the last stays to the scene's end; a drawing's own object and its first list item appear on the
+    beat the drawing arrives; no item appears after its drawing has left."""
+    if sc.get("template") != "stage": return
+    nb = len(sc.get("sentences") or [])
+    lays = sorted([l for l in (sc.get("data") or {}).get("layers") or [] if l.get("p") != "teFont"], key=lambda l: l.get("at", 0))
+    for j, l in enumerate(lays):
+        at = 0 if j == 0 else l.get("at", 0)
+        l["at"] = at
+        if j + 1 < len(lays): l["out"] = max(at + 1, lays[j + 1].get("at", 0)); lays[j + 1]["at"] = l["out"]
+        else: l.pop("out", None)
+        end = l.get("out", nb) - 0.05
+        if isinstance(l.get("a"), (int, float)): l["a"] = at
+        for k in LISTK:
+            its = l.get(k)
+            if not isinstance(its, list) or not its: continue
+            n = len(its)
+            for i, it in enumerate(its):
+                if isinstance(it, dict) and isinstance(it.get("a"), (int, float)):
+                    # never later than its even share of the drawing's time, so the picture builds up instead of waiting
+                    it["a"] = round(min(max(it["a"], at), end, at + i * (end - at) / n), 3)
+            if isinstance(its[0], dict): its[0]["a"] = at
+        for k in ("l", "r", "total"):
+            if isinstance(l.get(k), dict) and isinstance(l[k].get("a"), (int, float)):
+                l[k]["a"] = round(min(max(l[k]["a"], at), end), 3)
+        if isinstance(l.get("l"), dict) and "a" in l["l"]: l["l"]["a"] = at
+
 def sync_spec(spec):
-    return sum(sync_scene(sc) for sc in spec.get("scenes") or [])
+    n = sum(sync_scene(sc) for sc in spec.get("scenes") or [])
+    for sc in spec.get("scenes") or []: no_empty_picture(sc)
+    return n
 
 if __name__ == "__main__":
     for f in sys.argv[1:]:
