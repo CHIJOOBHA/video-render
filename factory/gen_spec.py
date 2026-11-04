@@ -48,9 +48,9 @@ def ask(prompt, tag):
             LOG.append(f"{tag}: {m} {time.time() - t0:.0f}s")
             return json.loads(txt)
         except urllib.error.HTTPError as e:
-            msg = e.read()[:500].decode("utf-8", "ignore")
-            LOG.append(f"{tag}: {m} HTTP {e.code} {msg[:140]}")
-            if e.code == 404 or (e.code == 429 and ("limit: 0" in msg or "PerDay" in msg)): ORDER.pop(0)
+            msg = re.sub(r"\s+", " ", e.read()[:3000].decode("utf-8", "ignore"))
+            LOG.append(f"{tag}: {m} HTTP {e.code} {msg[:600]}")
+            if e.code == 404 or (e.code == 429 and re.search(r"limit\W+0\b|PerDay|per day|RESOURCE_EXHAUSTED.*free_tier.*input_token", msg)): ORDER.pop(0)
             elif e.code == 429:
                 w = re.search(r'retryDelay"?:\s*"?(\d+)', msg); time.sleep(int(w.group(1)) + 2 if w else 30)
             elif e.code >= 500: time.sleep(10 + 5 * n)
