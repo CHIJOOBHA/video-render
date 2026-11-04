@@ -43,6 +43,8 @@ def bag(rx, t):
 BANNED = re.compile(r"\b(Furthermore|Moreover|Additionally|Specifically|Ultimately|In conclusion|synonymous|great distinction|legendary|renowned|iconic)\b", re.I)
 
 def check(group, out):
+    if not isinstance(out, dict):
+        return ['answer must be ONE JSON object keyed by scene id: {"<scene id>": [[english, telugu], ...]}']
     errs = []
     for sc in group:
         new = out.get(sc["id"])
