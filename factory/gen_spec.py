@@ -386,6 +386,12 @@ def main():
         lk = lib.key(piece + ("|first|" + "; ".join(part["sections"]) if first else "") + ("|last|" + str(part.get("next")) if last else ""))
         hit = lib.get("en", lk)
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
+            # a stored piece must still pass today's checks (they get stricter); otherwise it is written again
+            h_mn, h_mu, h_nw, h_sw = coverage(piece, hit["scenes"])
+            h_bad = h_mn or h_mu or added_names(part["en"] + " " + part.get("chapter_title", ""), hit["scenes"]) or \
+                    [x for sc in hit["scenes"] for x in scene_errs(sc) if " visual " not in x and "sentence over" not in x]
+            if h_bad: LOG.append(f"piece {ci + 1}: library piece {lk} fails today's checks — written again"); hit = None
+        if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
             for k, sc in enumerate(hit["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
             all_scenes += hit["scenes"]; lex.update(hit.get("lexicon") or {})
             report.append(f"- piece {ci + 1}: reused from the library ({lk}) — no AI call"); LOG.append(f"piece {ci + 1}: library hit {lk}")
