@@ -199,6 +199,7 @@ def screen_clean(t, ids):
     """On-screen text never shows a section / table number: '1.2 The written exam' -> 'The written exam',
     'Table 1.2a — Events' -> 'Table — Events' -> 'Events', a bare 'Table 1.1' -> 'Table'."""
     if not isinstance(t, str): return t
+    t = re.sub(r"\b(?:[A-Z] ){1,7}[A-Z]\b", lambda m: m.group(0).replace(" ", ""), t)   # 'C P T' is how it is SAID; shown: 'CPT'
     o = t
     m = re.match(r"^\s*(\d+(?:\.\d+)+[a-z]?)(?![\d%])\s*[—–:·.-]?\s*", t)
     if m and m.group(1) in ids: t = t[m.end():]
