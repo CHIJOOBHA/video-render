@@ -16,9 +16,11 @@ on:
   push:
     branches: [main]
     paths: ['queue/request.json']
-  workflow_dispatch:
+  workflow_dispatch:   # video factory (4 Nov 2026): the request comes as an input instead of queue/request.json
+    inputs:
+      req: { description: 'request.json content', required: false, default: '' }
 
-concurrency: { group: "render-${{ github.sha }}", cancel-in-progress: false }
+concurrency: { group: "render-${{ github.run_id }}", cancel-in-progress: false }
 permissions: { contents: read, actions: write, id-token: write }
 
 jobs:
@@ -30,9 +32,14 @@ jobs:
       shards: ${{ steps.voice.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - id: req
         run: echo "req=$(jq -c . queue/request.json)" >> "$GITHUB_OUTPUT"
       - name: No double runs — cancel older runs of the same video
+        if: ${{ github.event_name == 'push' }}
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           ID=$(jq -r .video_id queue/request.json)
@@ -96,6 +103,10 @@ jobs:
       ok: ${{ steps.k.outputs.ok }}
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - id: k
         continue-on-error: true
         env:
@@ -126,6 +137,10 @@ jobs:
         shard: ${{ fromJson(needs.prep.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - name: Telugu voice shard ${{ matrix.shard }}
@@ -149,6 +164,10 @@ jobs:
       ranges: ${{ steps.plan.outputs.ranges }}
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - id: plan
         run: |
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R); RUN=${{ github.run_id }}
@@ -212,6 +231,10 @@ jobs:
         range: ${{ fromJson(needs.plan.outputs.ranges) }}
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - name: Project + voice
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R)
@@ -247,6 +270,10 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - name: Project + voice
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R)
@@ -269,6 +296,10 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - name: Project + voice + pieces
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
@@ -321,6 +352,10 @@ jobs:
             --slurpfile dur durations.json \
             '{state:"done", runner:"public", duration:($d|tonumber), hd_bytes:($hd|tonumber), sd_bytes:($sd|tonumber), run:$run, durations:$dur[0], at:(now|todate)}' > s.json
           python3 $GITHUB_WORKSPACE/r2.py put s.json "jobs/$ID.json"
+          # video factory: a request with a title becomes a DRAFT row in the app's Video tab (CHIJOBHA publishes)
+          if [ -n "$(jq -r '.title // empty' $R)" ]; then
+            python3 $GITHUB_WORKSPACE/r2.py draft "$(jq -c --arg d "$DUR" '{id: .video_id, chapter_id, part: (.part // 1), title, lang: (.lang // "en"), duration_sec: ($d|tonumber)}' $R)"
+          fi
       - name: Final voice check (sub-project mode) — every script sentence must be heard
         run: |
           R=$PWD/queue/request.json; P=$(jq -r '.proj // empty' $R); L=$(jq -r '.lang // "en"' $R)
@@ -346,7 +381,7 @@ jobs:
       - name: Remove work files older than 7 days
         run: |
           CUT=$(date -u -d '7 days ago' +%F)
-          python3 r2.py list work/ | awk -v c="$CUT" '$1<c {print $3}' | while read k; do python3 r2.py rm "$k"; done
+          python3 r2.py list work/ | awk -v c="$CUT" '$1<c && $3 !~ /^work\/factory\// {print $3}' | while read k; do python3 r2.py rm "$k"; done
 
   report-failure:
     needs: [prep, tevoice, plan, chunk, finish]
@@ -354,6 +389,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Request (factory input)
+        if: ${{ inputs.req != '' && inputs.req != null }}
+        env: { REQ: "${{ inputs.req }}" }
+        run: printf '%s' "$REQ" | jq -c . > queue/request.json
       - run: |
           ID=$(jq -r .video_id queue/request.json)
           echo "{\"state\":\"failed\",\"runner\":\"public\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json

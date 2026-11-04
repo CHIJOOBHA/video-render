@@ -1,0 +1,33 @@
+# Telugu queue (4 Nov 2026): the factory renders English at once and queues Telugu here. Telugu voice runs on the ONE
+# free Kaggle GPU, so this starts the next Telugu render only when the previous one has finished (every 20 minutes).
+name: te-queue
+on:
+  schedule: [{ cron: '*/20 * * * *' }]
+  workflow_dispatch:
+concurrency: { group: te-queue, cancel-in-progress: false }
+permissions: { contents: read, actions: write, id-token: write }
+jobs:
+  next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          R2="python3 r2.py"
+          NEXT=$($R2 list work/factory/te-queue/ | awk '{print $3}' | sort | head -1)
+          [ -n "$NEXT" ] || { echo "Telugu queue empty"; exit 0; }
+          if $R2 get jobs/factory/te-active.json act.json 2>/dev/null; then
+            ID=$(jq -r .video_id act.json); AT=$(jq -r .at act.json)
+            ST=$($R2 get "jobs/$ID.json" st.json 2>/dev/null && jq -r .state st.json || echo none)
+            AGE=$(( $(date +%s) - $(date -d "$AT" +%s) ))
+            if [ "$ST" != "done" ] && [ "$ST" != "failed" ] && [ $AGE -lt 21600 ]; then echo "busy: $ID ($ST, ${AGE}s)"; exit 0; fi
+            echo "previous: $ID $ST"
+          fi
+          $R2 get "$NEXT" req.json
+          ID=$(jq -r .video_id req.json)
+          echo '{"state":"queued"}' > st.json; $R2 put st.json "jobs/$ID.json"
+          gh workflow run render.yml -R "$GITHUB_REPOSITORY" -f req="$(jq -c . req.json)"
+          jq -n --arg id "$ID" --arg at "$(date -u +%FT%TZ)" '{video_id: $id, at: $at}' > act.json
+          $R2 put act.json jobs/factory/te-active.json && $R2 rm "$NEXT"
+          echo "started Telugu render $ID; left in queue: $($R2 list work/factory/te-queue/ | wc -l)"

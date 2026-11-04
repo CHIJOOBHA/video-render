@@ -41,3 +41,7 @@ elif cmd == "list":
         print(it["at"][:10], it["size"], it["key"])
 elif cmd == "rm":
     call("delete", key=sys.argv[2])
+elif cmd == "draft":     # python3 r2.py draft '<json row>'  — finished video -> DRAFT row in the app (never published)
+    req = urllib.request.Request(f"{FN}?action=draft", data=sys.argv[2].encode(), method="POST",
+                                 headers={"x-gh-oidc": oidc(), "content-type": "application/json"})
+    print(urllib.request.urlopen(req, timeout=60).read().decode())

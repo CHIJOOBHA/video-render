@@ -1,0 +1,40 @@
+# Video factory (4 Nov 2026): notes -> Gemini script + scene plan -> code checks -> English render at once, Telugu queued
+# for the Kaggle GPU (te-queue.yml). Runs with no Claude. Contains NO course content: the studio source + notes come from
+# private storage (base_src), results go back there. One chapter per machine, two chapters at a time (Gemini free limits).
+name: factory
+run-name: factory ${{ inputs.subject }} ch ${{ inputs.chapters }}
+on:
+  workflow_dispatch:
+    inputs:
+      subject: { description: 'notes subject', default: 'current-events-2026' }
+      prefix: { description: 'app video id prefix', default: 'ce' }
+      chapters: { description: 'chapters, e.g. 1 or 1,2,3', required: true }
+      base_src: { description: 'studio source tarball in private storage (src/<sha>.tgz)', required: true }
+      only: { description: 'only these parts (e.g. ce1p1,ce1p3) — empty = all', default: '' }
+      render: { description: 'start renders (yes) or only write + check scripts (no)', default: 'yes' }
+permissions: { contents: read, actions: write, id-token: write }
+
+jobs:
+  chapter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        ch: ${{ fromJson(format('[{0}]', inputs.chapters)) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Studio source + notes
+        run: |
+          python3 r2.py get "${{ inputs.base_src }}" base.tgz && mkdir w && tar -xzf base.tgz -C w
+          (cd w && npm ci --no-audit --no-fund --silent)
+          sudo python3 -m pip install -q --break-system-packages num2words wordfreq
+      - name: Make every part of chapter ${{ matrix.ch }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          RENDER: ${{ inputs.render }}
+        run: bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"
