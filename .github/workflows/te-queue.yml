@@ -1,5 +1,6 @@
-# Telugu queue (4 Nov 2026): the factory renders English at once and queues Telugu here. Telugu voice runs on the ONE
-# free Kaggle GPU, so this starts the next Telugu render only when the previous one has finished (every 20 minutes).
+# Telugu queue (4 Nov 2026): the factory renders English at once and queues Telugu here. One at a time (the ONE free
+# Kaggle GPU voices Telugu, and free Gemini writes it): when the previous Telugu render has finished, take the next part,
+# let Gemini write its Telugu into the same scenes (factory/te_fill.py), then start its render. Every 20 minutes.
 name: te-queue
 on:
   schedule: [{ cron: '*/20 * * * *' }]
@@ -9,10 +10,14 @@ permissions: { contents: read, actions: write, id-token: write }
 jobs:
   next:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-      - env: { GH_TOKEN: "${{ github.token }}" }
+      - name: Next Telugu part
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           R2="python3 r2.py"
           NEXT=$($R2 list work/factory/te-queue/ | awk '{print $3}' | sort | head -1)
@@ -25,9 +30,22 @@ jobs:
             echo "previous: $ID $ST"
           fi
           $R2 get "$NEXT" req.json
-          ID=$(jq -r .video_id req.json)
+          ID=$(jq -r .video_id req.json); PID=$(jq -r .part_id req.json); SUBJ=$(jq -r .subject req.json); CH=$(jq -r .chapter req.json)
+          # Telugu lines into the English spec (Gemini); if Gemini's free quota is used up, try again next round
+          $R2 get "$(jq -r .src req.json)" s.tgz && mkdir w && tar -xzf s.tgz -C w
+          sudo python3 -m pip install -q --break-system-packages num2words wordfreq
+          python3 factory/split.py w/notes "$SUBJ" "$CH" parts > /dev/null
+          if [ "$(jq -r '.te_pending // false' w/src/lessons/auto/$PID.json)" = "true" ]; then
+            $R2 get "jobs/factory/$SUBJ/$PID.md" rep.md 2>/dev/null || touch rep.md
+            if ! python3 factory/te_fill.py w/src/lessons/auto/$PID.json parts/$PID.json w rep.md; then
+              $R2 put rep.md "jobs/factory/$SUBJ/$PID.md"; echo "::warning::$PID Telugu not complete yet — retry next round"; exit 0
+            fi
+            $R2 put rep.md "jobs/factory/$SUBJ/$PID.md"; $R2 put w/src/lessons/auto/$PID.json "jobs/factory/$SUBJ/$PID.json"
+            tar -czf te.tgz --exclude=node_modules -C w . && $R2 put te.tgz "work/factory/src/$PID-te.tgz"
+            jq --arg s "work/factory/src/$PID-te.tgz" '.src = $s' req.json > r2.json && mv r2.json req.json
+          fi
           echo '{"state":"queued"}' > st.json; $R2 put st.json "jobs/$ID.json"
-          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c 'del(.part_id, .subject, .chapter)' req.json)"
           jq -n --arg id "$ID" --arg at "$(date -u +%FT%TZ)" '{video_id: $id, at: $at}' > act.json
           $R2 put act.json jobs/factory/te-active.json && $R2 rm "$NEXT"
           echo "started Telugu render $ID; left in queue: $($R2 list work/factory/te-queue/ | wc -l)"

@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 340
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 3
       matrix:
         ch: ${{ fromJson(format('[{0}]', inputs.chapters)) }}
     steps:
@@ -35,6 +35,7 @@ jobs:
       - name: Make every part of chapter ${{ matrix.ch }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           RENDER: ${{ inputs.render }}
         run: bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"

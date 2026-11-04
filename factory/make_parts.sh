@@ -1,6 +1,6 @@
 #!/bin/bash
-# One chapter through the factory: every part -> Gemini script + scene plan -> checks -> voice words -> source -> EN render
-# now, TE render queued for the Kaggle GPU (te-queue.yml takes one at a time). Status per part in private storage
+# One chapter through the factory: every part -> English script + scene plan (DeepSeek, else Gemini) -> checks -> voice words -> source -> EN render
+# now, Telugu written by Gemini into the same scenes and rendered one at a time on the Kaggle GPU (te-queue.yml). Status per part in private storage
 # jobs/factory/<subject>/<part>.md (READY / BLOCKED + coverage). Usage: make_parts.sh <subject> <chapter> <app_prefix> [only_ids]
 set -u
 SUBJ=$1; CH=$2; PFX=$3; ONLY=${4:-}
@@ -40,6 +40,7 @@ for J in $(ls parts/*.json | sort -V); do
   done
   if [ "${RENDER:-yes}" = "yes" ]; then
     gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(cat out/$ID-en.req)" && echo "EN render started: $PFX-en-ch$CH-p$P"
+    jq --arg pid "$ID" --arg s "$SUBJ" --argjson c $CH '. + {part_id: $pid, subject: $s, chapter: $c}' out/$ID-te.req > q.json && mv q.json out/$ID-te.req
     $R2 put out/$ID-te.req "work/factory/te-queue/$(printf '%s-%02d-%02d' "$SUBJ" "$CH" "$P").json" && echo "TE queued"
   fi
   echo "::notice title=$ID::READY — EN render started, TE queued"

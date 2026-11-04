@@ -4,7 +4,7 @@ Each scene shows the teacher's notes column on the right (`note` on a beat) and 
 (`visuals`). A drawing appears on beat `at` and leaves on beat `out` (optional, default = end of the scene).
 Two drawings in a scene must not be on screen at the same time: the second one's `at` = the first one's `out`.
 Every list item has `b` = the beat on which it appears (it must be inside the drawing's at..out range).
-All text is a pair `["English", "Telugu"]`. On-screen text is SHORT: ≤ 6 words per line, use `|` for a line break
+All text is plain English (the Telugu is written later into the same places). On-screen text is SHORT: ≤ 6 words per line, use `|` for a line break
 (max 2 lines). Digits ARE allowed on screen (years, amounts, counts) — copy them exactly from the notes.
 Pick the drawing that SHOWS the concept (mute test: the picture alone teaches the point). Vary drawings across scenes:
 do not use the same drawing in two scenes in a row, and use at least 6 different drawings in a part.
@@ -40,8 +40,8 @@ tirupati ap
 A place not in these lists → use tiles or dates instead (never invent a pin name).
 
 ## Notes column (`note` on a beat, optional)
-`{"t": ["English line", "Telugu line"]}` — a short line written on the teacher's notes; `**word**` = highlighted.
-`{"h": ["Heading", "Telugu heading"], "clear": true}` — starts a fresh notes page with a heading.
+`{"t": "notes line"}` — a short line written on the teacher's notes; `**word**` = highlighted.
+`{"h": "Heading", "clear": true}` — starts a fresh notes page with a heading.
 Give most beats a `note`: it is what the student copies. Keep each ≤ 10 words.
 
 ## Scene kinds (`kind`)
