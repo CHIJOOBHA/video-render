@@ -93,6 +93,7 @@ def num_forms(tok):
         else:
             n = int(t); out.add(num2words(n))
             if 1100 <= n <= 2099: out.add(num2words(n, to="year"))
+            if n < 200: out.add(num2words(n, to="ordinal"))
             if len(t) > 1 and t.startswith("0"): out.add(" ".join(num2words(int(c)) for c in t))
     except Exception: pass
     norm = lambda s: re.sub(r"[\s-]+", " ", s.lower().replace(" and ", " ").replace(",", "")).strip()
@@ -110,9 +111,10 @@ def coverage(notes, scenes):
         k = re.sub(r"['’]s$", "", w.lower())
         if len(k) > 2 and not re.fullmatch(r"[IVX]+", w) and (w.isupper() or zipf_frequency(k, "en") < 3.2): names.add(w)
     ids = sec_ids(notes)
-    for n in re.findall(r"(?<![\w.])\d[\d,]*(?:\.\d+)?[a-z]?", notes):
-        if n in ids or n.rstrip("abcdefgh") in ids: continue
-        n = n.rstrip("abcdefgh")
+    for n in re.findall(r"(?<![\d.,])\d[\d,]*(?:\.\d+)?(?:st|nd|rd|th|[a-z](?![a-z]))?", notes):     # Q12, G20, COP28 count too
+        if n in ids: continue
+        n = re.sub(r"(?:st|nd|rd|th|[a-z])$", "", n)
+        if n in ids: continue
         if n.strip(",") not in ("0", "1"): nums.add(n.strip(","))
     def said(w):
         k = re.sub(r"['’]s$", "", w.lower())
@@ -120,7 +122,7 @@ def coverage(notes, scenes):
         if len(w) > 2 and w.endswith("s") and w[:-1].isupper(): return said(w[:-1])      # CAPFs = C A P Fs
         return False
     miss_names = sorted(w for w in names if not said(w))
-    miss_nums = sorted(n for n in nums if not any(f in low for f in num_forms(n)) and n not in screen)
+    miss_nums = sorted(n for n in nums if not any(f in low for f in num_forms(n)))   # spoken, not only shown
     nw = len(re.findall(r"\w+", re.sub(r"^#.*$", "", notes, flags=re.M))); sw = len(spoken.split())
     return miss_names, miss_nums, nw, sw
 
@@ -395,7 +397,7 @@ def main():
                 "exam box and source note — in order, explained like a teacher (at least one beat per notes point; usually "
                 "more words than the notes, never fewer). Leave out only practice MCQs.\n" + piece + "\n\n# ANSWER\n" + SHAPE)
         out, errs, mn, mu = None, [], [], []
-        for rnd in range(3):
+        for rnd in range(4):
             prompt = base if out is None else (base + "\n\n# YOUR LAST ANSWER\n" + json.dumps(out) + "\n\n# CHECKER FOUND\n" +
                      "\n".join(errs[:60]) +
                      (f"\nNever spoken (teach each where the notes have it): {mn}" if mn else "") +
@@ -421,7 +423,7 @@ def main():
             LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
                        f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
             hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
-            if not mn and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
+            if not mn and not mu and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
         for sc in out["scenes"]:
@@ -435,10 +437,11 @@ def main():
         lex.update({k.lower(): v for k, v in (out.get("lexicon") or {}).items()
                     if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())})
         hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
-        if not mn and not hard and sw >= 0.7 * nw:
+        if not mn and not mu and not hard and sw >= 0.7 * nw:
             lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
         if mn: blocking.append(f"piece {ci + 1}: names/terms never spoken {mn}")
+        if mu: blocking.append(f"piece {ci + 1}: numbers never spoken {mu}")     # LOCKED rule: every number is taught
         if hard: blocking += [f"piece {ci + 1}: {e}" for e in hard]
         if sw < 0.7 * nw: blocking.append(f"piece {ci + 1}: script far shorter than the notes ({sw}/{nw} words)")
     spec, nsent = build(part, all_scenes)
