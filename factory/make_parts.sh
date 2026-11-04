@@ -6,7 +6,7 @@ set -u
 SUBJ=$1; CH=$2; PFX=$3; ONLY=${4:-}
 F=$GITHUB_WORKSPACE/factory; R2="python3 $GITHUB_WORKSPACE/r2.py"
 mkdir -p parts out
-python3 $F/split.py w/notes "$SUBJ" "$CH" parts | tee parts.txt
+python3 $F/split.py w/notes "$SUBJ" "$CH" parts --prefix "$PFX" | tee parts.txt
 for J in $(ls parts/*.json | sort -V); do
   ID=$(basename $J .json); P=$(jq -r .part $J)
   if [ -n "$ONLY" ] && ! echo ",$ONLY," | grep -q ",$ID,"; then continue; fi
@@ -39,9 +39,10 @@ for J in $(ls parts/*.json | sort -V); do
         chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {} end)' > out/$ID-$L.req
   done
   if [ "${RENDER:-yes}" = "yes" ]; then
-    gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(cat out/$ID-en.req)" && echo "EN render started: $PFX-en-ch$CH-p$P"
+    # English renders wait in a queue too (queue.yml starts them as machines free up — thousands at once would time out)
+    $R2 put out/$ID-en.req "work/factory/en-queue/$(printf '%s-%s-%02d-%02d' "${ORD:-50}" "$SUBJ" "$CH" "$P").json" && echo "EN queued"
     jq --arg pid "$ID" --arg s "$SUBJ" --argjson c $CH '. + {part_id: $pid, subject: $s, chapter: $c}' out/$ID-te.req > q.json && mv q.json out/$ID-te.req
-    $R2 put out/$ID-te.req "work/factory/te-queue/$(printf '%s-%02d-%02d' "$SUBJ" "$CH" "$P").json" && echo "TE queued"
+    $R2 put out/$ID-te.req "work/factory/te-queue/$(printf '%s-%s-%02d-%02d' "${ORD:-50}" "$SUBJ" "$CH" "$P").json" && echo "TE queued"
   fi
   echo "::notice title=$ID::READY — EN render started, TE queued"
   echo "::endgroup::"

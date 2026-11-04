@@ -7,6 +7,7 @@ guides/explain-style.md) + menu.md. Models: llm.py (DeepSeek first for English, 
 Nothing here contains course content (the public repo stays content-free)."""
 import json, os, re, sys
 from llm import ask, LOG
+import lib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -244,7 +245,8 @@ def chunks(md, limit=520):
     pieces = re.split(r"\n(?=#{2,3} )", body)
     out, cur = [], ""
     for p in pieces:
-        if cur and len(re.findall(r"\w+", cur + p)) > limit: out.append(cur); cur = ""
+        # never across a ## section (pieces then match the same section in another subject -> reused from the library)
+        if cur and (p.startswith("## ") or len(re.findall(r"\w+", cur + p)) > limit): out.append(cur); cur = ""
         cur += ("\n" if cur else "") + p
     if cur.strip(): out.append(cur)
     return out
@@ -278,6 +280,14 @@ def main():
                      if part.get("next") else "End with a recap of the whole chapter's key lines.") if last else
                     "Do not recap yet — the lesson continues in the next piece."))
         prev = [b["en"] for sc in all_scenes[-2:] for b in sc["beats"]][-4:]
+        # the same notes text, in the same role (opening / middle / closing of a part), is reused from the library
+        lk = lib.key(piece + ("|first|" + "; ".join(part["sections"]) if first else "") + ("|last|" + str(part.get("next")) if last else ""))
+        hit = lib.get("en", lk)
+        if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
+            for k, sc in enumerate(hit["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
+            all_scenes += hit["scenes"]; lex.update(hit.get("lexicon") or {})
+            report.append(f"- piece {ci + 1}: reused from the library ({lk}) — no AI call"); LOG.append(f"piece {ci + 1}: library hit {lk}")
+            continue
         base = ("You write part of ONE video lesson for Roach Academia (APPSC exam classes), in ENGLISH, from the notes below.\n\n"
                 "# RULES (the LOCKED rules win over everything)\n" + rules + "\n\n# WHERE WE ARE\n" + where +
                 "\n\n# JUST SAID (continue from here)\n" + json.dumps(prev) +
@@ -315,6 +325,8 @@ def main():
         lex.update({k.lower(): v for k, v in (out.get("lexicon") or {}).items()
                     if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())})
         hard = [e for e in errs if " visual " not in e]
+        if not mn and not hard and sw >= 0.7 * nw:
+            lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
         if mn: blocking.append(f"piece {ci + 1}: names/terms never spoken {mn}")
         if hard: blocking += [f"piece {ci + 1}: {e}" for e in hard]

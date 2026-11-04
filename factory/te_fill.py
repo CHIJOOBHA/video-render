@@ -4,6 +4,7 @@ from the TELUGU notes (their names, spellings and wording; not a translation of 
 Usage: python3 te_fill.py <spec.json in/out> <part.json> <studio_dir> <report.md>"""
 import json, os, re, sys
 from llm import ask, LOG
+import lib
 
 TE = re.compile(r"[ఀ-౿]")
 
@@ -30,8 +31,20 @@ def main():
     guide = open(os.path.join(studio, "guides/teacher-script.md"), encoding="utf-8").read()
     locked = open(os.path.join(studio, "CLAUDE.md"), encoding="utf-8").read().split("## Common rules")[0]
     scenes = spec["scenes"]
-    groups, cur, n = [], [], 0
+    # Telugu of a scene whose English is identical to one already done (any subject) is reused from the library
+    keys, todo = {}, []
     for sc in scenes:
+        ens = [s["text"]["en"] for s in sc["sentences"]]
+        keys[sc["id"]] = lib.key(json.dumps([ens, sorted({p["en"] for p in strings(sc["data"], [])})]))
+        hit = lib.get("te", keys[sc["id"]])
+        if hit and len(hit.get("beats") or []) == len(ens):
+            for s, te in zip(sc["sentences"], hit["beats"]): s["text"]["te"] = te
+            for p in strings(sc["data"], []):
+                if hit.get("screen", {}).get(p["en"]): p["te"] = hit["screen"][p["en"]]
+            LOG.append(f"{sc['id']}: Telugu reused from the library")
+        if any(not s["text"]["te"] for s in sc["sentences"]): todo.append(sc)
+    groups, cur, n = [], [], 0
+    for sc in todo:
         if cur and n + len(sc["sentences"]) > 22: groups.append(cur); cur, n = [], 0
         cur.append(sc); n += len(sc["sentences"])
     if cur: groups.append(cur)
@@ -75,6 +88,9 @@ def main():
                 if not p["te"]: p["te"] = p["en"]                  # an untranslated label shows the English (logged)
             prev += [s["text"]["te"] for s in sc["sentences"] if s["text"]["te"]]
             bad_total += [f"{sc['id']} beat {k}" for k, s in enumerate(sc["sentences"]) if not s["text"]["te"]]
+            if all(s["text"]["te"] for s in sc["sentences"]):
+                lib.put("te", keys[sc["id"]], {"beats": [s["text"]["te"] for s in sc["sentences"]],
+                                               "screen": {p["en"]: p["te"] for p in strings(sc["data"], []) if p["te"]}})
     if not bad_total: spec.pop("te_pending", None)
     from gen_spec import size_spec
     size_spec(spec)                      # Telugu words are longer: boxes and pages re-fitted

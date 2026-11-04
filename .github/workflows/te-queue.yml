@@ -3,11 +3,31 @@
 # let Gemini write its Telugu into the same scenes (factory/te_fill.py), then start its render. Every 20 minutes.
 name: te-queue
 on:
-  schedule: [{ cron: '*/20 * * * *' }]
+  schedule: [{ cron: '*/10 * * * *' }]
   workflow_dispatch:
 concurrency: { group: te-queue, cancel-in-progress: false }
 permissions: { contents: read, actions: write, id-token: write }
 jobs:
+  english:   # English renders: keep 2 running at all times (GitHub's 20 free machines), lowest queue name first
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          R2="python3 r2.py"
+          ACTIVE=0
+          for st in queued in_progress; do
+            ACTIVE=$(( ACTIVE + $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/runs?status=$st&per_page=100" -q '.total_count') ))
+          done
+          FREE=$(( 2 - ACTIVE )); echo "renders running: $ACTIVE"
+          for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | sort | head -n $(( FREE > 0 ? FREE : 0 ))); do
+            $R2 get "$K" req.json
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)" \
+              && $R2 rm "$K" && echo "started $(jq -r .video_id req.json)"
+          done
+          echo "English parts waiting: $($R2 list work/factory/en-queue/ | wc -l)"
+
   next:
     runs-on: ubuntu-latest
     timeout-minutes: 120

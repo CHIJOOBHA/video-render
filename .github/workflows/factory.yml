@@ -11,7 +11,8 @@ on:
       chapters: { description: 'chapters, e.g. 1 or 1,2,3', required: true }
       base_src: { description: 'studio source tarball in private storage (src/<sha>.tgz)', required: true }
       only: { description: 'only these parts (e.g. ce1p1,ce1p3) — empty = all', default: '' }
-      render: { description: 'start renders (yes) or only write + check scripts (no)', default: 'yes' }
+      render: { description: 'queue renders (yes) or only write + check scripts (no)', default: 'yes' }
+      order: { description: 'queue order (lower renders first; EO 10-29, Group 2 30-49)', default: '50' }
 permissions: { contents: read, actions: write, id-token: write }
 
 jobs:
@@ -39,4 +40,5 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
           RENDER: ${{ inputs.render }}
+          ORD: ${{ inputs.order }}
         run: bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"

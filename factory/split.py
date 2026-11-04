@@ -45,6 +45,9 @@ def main():
     os.makedirs(od, exist_ok=True)
     base = re.sub(r"-\d{4}$", "", subj)
     short = {"current-events": "ce"}.get(base, base)
+    if "--prefix" in sys.argv:                       # app prefix (bhg, ip, g2p...) -> part ids bhg3p1, g2px3p1 (x after a digit)
+        pf = sys.argv[sys.argv.index("--prefix") + 1].replace("-", "")
+        short = pf + ("x" if pf[-1].isdigit() else "")
     ids = []
     for p, g in enumerate(groups, 1):
         pid = f"{short}{ch}p{p}"
