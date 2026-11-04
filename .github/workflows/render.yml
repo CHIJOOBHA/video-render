@@ -90,7 +90,7 @@ jobs:
             KOKORO_DIR=$HOME/kokoro-model bash tools/setup_kokoro.sh
             for py in $HOME/kokoro-model/*/bin/python3; do [ -x "$py" ] && "$py" -m pip install -q wordfreq || true; done   # if setup made its own Python
             # new words (factory word lists) are heard back first; a word that cannot be made clear stops the render (rule 5)
-            sudo python3 -m pip install -q --break-system-packages faster-whisper
+            sudo python3 -m pip install -q --break-system-packages --ignore-installed typing_extensions faster-whisper   # debian's typing_extensions cannot be uninstalled
             set +e; KOKORO_DIR=$HOME/kokoro-model python3 -I tools/pron_listen.py sentences.json $RUNNER_TEMP/pron.json "$(jq -r '.voice // "roki-in50"' $R)"; PR=$?; set -e
             python3 $GITHUB_WORKSPACE/r2.py put $RUNNER_TEMP/pron.json "work/$ID/$GITHUB_RUN_ID/pron.json"
             [ $PR = 0 ] || { echo "::error title=new words::$(jq -r '.unclear | join(", ")' $RUNNER_TEMP/pron.json) not heard clearly — fix their spelling"; exit 1; }
