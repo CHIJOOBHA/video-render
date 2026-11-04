@@ -31,6 +31,17 @@ def ask(model, prompt):
     r = http(f"{API}/models/{model}:generateContent", body)
     return json.loads(r["candidates"][0]["content"]["parts"][0]["text"])
 
+
+EN_NUM = re.compile(r"\b(eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|lakh|crore|million|billion|per cent)", re.I)   # years and big numbers; small words like "one", "first" are ordinary speech
+TE_NUM = re.compile(r"(పదకొండు|పన్నెండు|పదమూడు|పద్నాలుగు|పదిహేను|పదహారు|పదిహేడు|పద్దెనిమిది|పంతొమ్మిది|ఇరవై|ముప్పై|నలభై|యాభై|అరవై|డెబ్బై|ఎనభై|తొంభై|వంద|వేల|లక్ష|కోటి|కోట్ల|శాతం)")
+STOP = set("A An And As At But By For From He His I If In It Its Let Now Of On Or So She That The Their Then There These This Those To We What When Which Who Why With You Your First Next Finally Also Our".split())
+def names(t):
+    return {w.strip(".,;:!?'\"()") for w in re.findall(r"(?<![.!?]\s)(?<!^)\b[A-Z][\w'-]+", t)} - STOP
+def bag(rx, t):
+    from collections import Counter
+    return Counter(m.lower() for m in rx.findall(t))
+BANNED = re.compile(r"\b(Furthermore|Moreover|Additionally|Specifically|Ultimately|In conclusion|synonymous|great distinction|legendary|renowned|iconic)\b", re.I)
+
 def check(group, out):
     errs = []
     for sc in group:
@@ -43,6 +54,14 @@ def check(group, out):
                 errs.append(f"scene {sc['id']} beat {i}: must be [english, telugu]"); continue
             if re.search(r"\d", b[0] + b[1]):
                 errs.append(f"scene {sc['id']} beat {i}: digits found — write numbers as spoken words")
+            ob = sc["beats"][i]
+            lost = {w for w in names(ob[0]) if re.sub(r"'s$", "", w).lower() not in b[0].lower()}
+            if lost: errs.append(f"scene {sc['id']} beat {i}: English dropped {sorted(lost)} — keep every name and term")
+            for rx, k, nm in ((EN_NUM, 0, "English"), (TE_NUM, 1, "Telugu")):
+                miss = bag(rx, ob[k]) - bag(rx, b[k])
+                if miss: errs.append(f"scene {sc['id']} beat {i}: {nm} dropped number words {dict(miss)} — keep every number and date")
+            if BANNED.search(b[0]):
+                errs.append(f"scene {sc['id']} beat {i}: essay word or added praise '{BANNED.search(b[0]).group(0)}' — speak like a teacher, add nothing")
             if re.search(r"(^|\s)(Q\s?\w+|See Chapter)\s*:", b[0]):
                 errs.append(f"scene {sc['id']} beat {i}: colon list / 'Q nine:' style — use full spoken sentences")
     return errs
@@ -56,7 +75,7 @@ def main():
             groups.append(cur); cur, n = [], 0
         cur.append(sc); n += len(sc["beats"])
     if cur: groups.append(cur)
-    order, result, prev = models(), {}, []
+    order, result, prev, audited = models(), {}, [], {}
     log.append(f"models: {order[:4]}")
     for gi, g in enumerate(groups):
         base = (inp["recipe"] + "\n\n# ENGLISH NOTES (the only source of facts for English)\n" + inp["notes_en"] +
@@ -86,6 +105,19 @@ def main():
             except Exception as e:
                 log.append(f"group {gi} {model}: {e}"); time.sleep(5); continue
             errs = check(g, out)
+            if not errs and not audited.get(gi):
+                try:
+                    aud = ask(model, inp["recipe"] + "\n\n# ENGLISH NOTES\n" + inp["notes_en"] + "\n\n# TELUGU NOTES\n" + inp["notes_te"] +
+                        "\n\n# OLD BEATS\n" + json.dumps({x["id"]: x["beats"] for x in g}, ensure_ascii=False) +
+                        "\n\n# NEW BEATS\n" + json.dumps(out, ensure_ascii=False) +
+                        "\n\nYou are a strict exam-notes editor. Compare each NEW beat with its OLD beat and the notes. Fix every "
+                        "fact that was dropped, changed or added (including praise, adjectives or claims the notes do not make), "
+                        "and any sentence that does not sound like a teacher speaking. Keep the flow and the same beat counts. "
+                        "Return ONLY the corrected NEW BEATS JSON in the same shape.")
+                    if not check(g, aud): out = aud
+                    audited[gi] = True; log.append(f"group {gi}: audited by {model}")
+                except Exception as e:
+                    log.append(f"group {gi}: audit skipped ({e})")
             if not errs:
                 done = out; log.append(f"group {gi}: ok with {model} (attempt {attempt + 1})"); break
             log.append(f"group {gi} {model}: {len(errs)} problems, retrying: {errs[:3]}")
