@@ -1,0 +1,33 @@
+# Roach Academia — write a lesson's narration with Gemini (free tier) by guides/teacher-script.md.
+# Trigger: push queue/script.json {"job": "<name>"}. Input: private storage work/scripts/<job>/in.json (see gen_script.py).
+# Output: scripts-out/<job>.enc — encrypted to scripts-out/pub.pem, so the public repo never shows the notes or the script.
+name: script
+run-name: ${{ github.event.head_commit.message || 'script (manual)' }}
+on:
+  push:
+    paths: ['queue/script.json']
+  workflow_dispatch:
+permissions: { contents: write, id-token: write }
+concurrency: { group: script, cancel-in-progress: false }
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Gemini writes the script
+        env: { GEMINI_API_KEY: "${{ secrets.GEMINI_API_KEY }}" }
+        run: |
+          J=$(jq -r .job queue/script.json)
+          python3 r2.py get "work/scripts/$J/in.json" in.json
+          python3 gen_script.py in.json out.json
+      - name: Encrypt and save
+        if: always()
+        run: |
+          J=$(jq -r .job queue/script.json); [ -f out.json ] || exit 0
+          openssl rand -hex 32 > k.txt
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in out.json -out out.bin -pass file:k.txt
+          openssl pkeyutl -encrypt -pubin -inkey scripts-out/pub.pem -pkeyopt rsa_padding_mode:oaep -in k.txt -out key.bin
+          tar -czf "scripts-out/$J.enc" out.bin key.bin; rm -f k.txt out.json
+          git config user.name "video-render bot"; git config user.email "actions@users.noreply.github.com"
+          git add "scripts-out/$J.enc" && git commit -qm "script $J" && for i in 1 2 3; do git pull -q --rebase && git push -q && break; sleep 5; done
