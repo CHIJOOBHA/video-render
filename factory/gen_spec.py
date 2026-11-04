@@ -184,7 +184,16 @@ def build(part, scenes_in):
                        "data": {"v": sc.get("kind") if sc.get("kind") in ("card", "trap", "trick", "diary") else "card",
                                 "kicker": P(sc.get("kicker") or ""), "title": P(sc.get("title") or ""), "layers": layers, "items": items}})
         nb_total += nb
-    return size_spec({"subject": "current-affairs", "source": {"en": part["source"][0], "te": part["source"][1]}, "te_pending": True,
+    base = re.sub(r"-\d{4}$", "", part.get("subject", "current-events"))
+    look = {"current-events": "current-affairs", "g2-current-affairs": "current-affairs", "bhagavatam": "bhagavatam",
+            "disaster-management": "geography", "endowment-finance-lands": "temple", "eo-economy": "economy", "g2-economy": "economy",
+            "family-adoption-succession": "polity", "festivals-fine-arts": "festivals", "general-science-tech": "science",
+            "g2-science-tech": "science", "india-ap-geography": "geography", "g2-geography": "geography", "india-ap-history": "history",
+            "g2-ap-history": "history", "g2-indian-history": "history", "indian-polity": "polity", "g2-polity": "polity",
+            "g2-indian-society": "polity", "mahabharatam": "mahabharata", "philosophies-gurus": "philosophy", "purana-darshini": "puranas",
+            "ramayanam": "ramayana", "sustainable-development-environment": "environment", "temple-agamas": "temple",
+            "vedic-culture": "philosophy"}.get(base, "current-affairs")          # the subject's one accent colour (theme.ts ACCENT)
+    return size_spec({"subject": look, "source": {"en": part["source"][0], "te": part["source"][1]}, "te_pending": True,
             "scenes": scenes}), nb_total + 1
 
 # ---------------------------------------------------------------- layout fixes (both languages; run again after Telugu)
