@@ -20,6 +20,14 @@ for k, (sc, ss) in enumerate(S.items()):
     for i, s in enumerate(ss):
         n = math.ceil(D[sc][i] * 30); spans.append((f'{sc}_{i}', s, t / 30, (t + n) / 30)); t += n + GAP
     t += TAIL if k == len(S) - 1 else HOLD
+NUMW = set("""సున్నా ఒకటి ఒక రెండు మూడు నాలుగు ఐదు ఆరు ఏడు ఎనిమిది తొమ్మిది పది పదకొండు పన్నెండు పదమూడు పద్నాలుగు పదిహేను పదహారు
+పదిహేడు పద్దెనిమిది పందొమ్మిది ఇరవై ముప్పై నలభై యాభై ఏభై అరవై డెబ్బై ఎనభై తొంభై వంద వందల నూట వెయ్యి వేల లక్ష లక్షల కోటి కోట్ల
+పాయింట్ zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen
+nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand lakh crore point""".split())
+def nonum(x):
+    w = re.findall(r"[\wఀ-౿-]+", x.lower())
+    return " ".join(t for t in w if not all(p in NUMW for p in t.split("-")))
+
 def norm(x):
     x = re.sub(r"[^\w\sఀ-౿]", " ", x.lower()); return re.sub(r"\s+", "", x)
 pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', vid, '-vn', '-ac', '1', '-ar', '16000', '-f', 's16le', '-'], capture_output=True, check=True).stdout
@@ -32,7 +40,14 @@ for key, s, b, e in spans:
     n = max(1, int(np.ceil(len(seg) / (12 * 16000)))); step = int(np.ceil(len(seg) / n))
     h = ' '.join(x.text for k in range(n) for x in m.transcribe(seg[k * step:(k + 1) * step], language=lang, beam_size=5)[0])
     tt = norm(s); sm = difflib.SequenceMatcher(None, tt, norm(h), autojunk=False)
-    res[key] = {'score': round(sum(bl.size for bl in sm.get_matching_blocks()) / max(1, len(tt)), 2), 'heard': h.strip()}
+    sc = sum(bl.size for bl in sm.get_matching_blocks()) / max(1, len(tt))
+    # 4 Nov 2026: the recogniser writes spoken numbers as digits ("ఇరవై మూడు" -> "23", "twenty twenty-six" -> "2026"), which
+    # made fully spoken sentences score low; numbers are also compared with number words and digits both left out
+    t2, h2 = norm(nonum(s)), norm(re.sub(r"\d+", " ", h))
+    if t2:
+        sm2 = difflib.SequenceMatcher(None, t2, h2, autojunk=False)
+        sc = max(sc, sum(bl.size for bl in sm2.get_matching_blocks()) / len(t2))
+    res[key] = {'score': round(sc, 2), 'heard': h.strip()}
 json.dump(res, open(out, 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 v = [x['score'] for x in res.values()]
 print(f"per-sentence: mean {np.mean(v):.2f} · {sum(1 for x in v if x >= 0.6)}/{len(v)} >= 0.6")
