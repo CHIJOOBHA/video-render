@@ -324,7 +324,9 @@ def _size(spec):
                 w = max(420, int(max(hl * 29, tl * 21)) + 70)
                 l["cols"] = 1 if w > 760 or len(its) <= 3 else min(l.get("cols") or 2, 3 if w < 520 else 2, 2 if len(its) == 4 else 3)   # 1-3 tiles stacked: a row of 2 wide tiles filled 20% of the picture
                 l["w"] = w
-                nl = max((len(str((i.get("t") or {}).get("en", i.get("t")) if isinstance(i.get("t"), dict) else i.get("t") or "").split("|")) if i.get("t") else 0) for i in its)
+                # lines of the subline in EITHER language (4 Nov 2026: a 3-line Telugu subline ran out of its tile)
+                nl = max((max(len(str(x or "").split("|")) for x in ((i["t"].get("en"), i["t"].get("te")) if isinstance(i.get("t"), dict) else (i.get("t"),)))
+                          if i.get("t") else 0) for i in its)
                 l["h"] = 130 + 50 * nl + (60 if len(its) <= 3 else 0)
             if l.get("p") == "sheet":      # a document wide enough for its lines (they wrap to 2 lines beyond that)
                 ls = [l.get("title"), l.get("sub")] + list(l.get("lines") or [])
