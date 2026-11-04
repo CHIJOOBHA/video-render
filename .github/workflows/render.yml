@@ -35,7 +35,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - id: req
         run: echo "req=$(jq -c . queue/request.json)" >> "$GITHUB_OUTPUT"
       - name: No double runs — cancel older runs of the same video
@@ -106,7 +107,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - id: k
         continue-on-error: true
         env:
@@ -140,7 +142,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - name: Telugu voice shard ${{ matrix.shard }}
@@ -167,7 +170,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - id: plan
         run: |
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R); RUN=${{ github.run_id }}
@@ -234,7 +238,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - name: Project + voice
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R)
@@ -273,7 +278,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - name: Project + voice
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R)
@@ -299,7 +305,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - name: Project + voice + pieces
         run: |
           R=queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
@@ -392,7 +399,8 @@ jobs:
       - name: Request (factory input)
         if: ${{ inputs.req != '' && inputs.req != null }}
         env: { REQ: "${{ inputs.req }}" }
-        run: printf '%s' "$REQ" | jq -c . > queue/request.json
+        run: |   # app chapter ids are two-digit (ce-en-ch01): ids from the factory are normalised here, for every job alike
+          printf '%s' "$REQ" | jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' > queue/request.json
       - run: |
           ID=$(jq -r .video_id queue/request.json)
           echo "{\"state\":\"failed\",\"runner\":\"public\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json

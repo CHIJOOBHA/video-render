@@ -23,7 +23,7 @@ jobs:
           MAX=$(cat queue/en-max 2>/dev/null || echo 2)      # queue/en-max: 0 pauses English renders (e.g. while scripts are written)
           FREE=$(( MAX - ACTIVE )); echo "renders running: $ACTIVE (max $MAX)"
           for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | sort | head -n $(( FREE > 0 ? FREE : 0 ))); do
-            $R2 get "$K" req.json
+            $R2 get "$K" req.json && jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' req.json > rq.json && mv rq.json req.json
             gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)" \
               && $R2 rm "$K" && echo "started $(jq -r .video_id req.json)"
           done
@@ -52,7 +52,7 @@ jobs:
             if [ "$ST" != "done" ] && [ "$ST" != "failed" ] && [ $AGE -lt 21600 ]; then echo "busy: $ID ($ST, ${AGE}s)"; exit 0; fi
             echo "previous: $ID $ST"
           fi
-          $R2 get "$NEXT" req.json
+          $R2 get "$NEXT" req.json && jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' req.json > rq.json && mv rq.json req.json
           ID=$(jq -r .video_id req.json); PID=$(jq -r .part_id req.json); SUBJ=$(jq -r .subject req.json); CH=$(jq -r .chapter req.json)
           # Telugu lines into the English spec (Gemini); if Gemini's free quota is used up, try again next round
           $R2 get "$(jq -r .src req.json)" s.tgz && mkdir w && tar -xzf s.tgz -C w

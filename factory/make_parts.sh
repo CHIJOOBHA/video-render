@@ -33,7 +33,8 @@ for J in $(ls parts/*.json | sort -V); do
   $R2 put out/$ID-src.tgz "work/factory/src/$ID.tgz"
   SECS=$(jq -r '[.sections[] | sub("^[0-9.]+ "; "")] | join(", ")' $J | cut -c1-150)
   for L in en te; do
-    jq -nc --arg id "$PFX-$L-ch$CH-p$P" --arg ch "$PFX-$L-ch$CH" --arg lesson "src/lessons/auto/auto-$ID.ts" \
+    C2=$(printf %02d $CH)      # app chapter ids are two-digit: ce-en-ch01
+    jq -nc --arg id "$PFX-$L-ch$C2-p$P" --arg ch "$PFX-$L-ch$C2" --arg lesson "src/lessons/auto/auto-$ID.ts" \
       --arg spec "auto${C}Spec" --arg comp "Auto${C}$(echo $L | tr a-z A-Z)" --arg lang $L --arg t "Ch $CH · Part $P · $SECS" --argjson p $P \
       '{video_id: $id, chapter_id: $ch, src: "work/factory/src/'$ID'.tgz", lesson: $lesson, spec: $spec, comp: $comp, lang: $lang,
         chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {} end)' > out/$ID-$L.req
