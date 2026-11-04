@@ -339,8 +339,8 @@ def _size(spec):
                 l["w"] = 340      # 4 Nov 2026: words wrap inside the box; a box as wide as its longest word made 6 boxes unreadably small
             if l.get("p") in ("dates", "plaques"):
                 its = l.get("events") or l.get("items") or []
-                l["w"] = max(l.get("w") or 0, 900, max((max(_len(i.get("t")), _len(i.get("name")), _len(i.get("role"))) for i in its), default=10) * 24 + 200)
-                if l["p"] == "dates": l["w"] = max(l["w"], 330 * (len(its) + 1))
+                if l["p"] == "dates": l["w"] = max(900, 330 * (len(its) + 1))   # words wrap inside each date's slot; width by count only
+                else: l["w"] = max(l.get("w") or 0, 900, max((max(_len(i.get("t")), _len(i.get("name")), _len(i.get("role"))) for i in its), default=10) * 24 + 200)
         # notes column: a fresh page when the next line would run past the bottom (each note's wrapped lines counted —
         # 7 notes of two lines each overflowed, 4 Nov 2026). Column ~590 px wide, 40 px text: ~33 Latin / ~26 Telugu chars a line.
         used = 0

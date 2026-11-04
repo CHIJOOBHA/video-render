@@ -40,9 +40,10 @@ def main():
         if hit and len(hit.get("beats") or []) == len(ens):
             for s, te in zip(sc["sentences"], hit["beats"]): s["text"]["te"] = te
             for p in strings(sc["data"], []):
-                if hit.get("screen", {}).get(p["en"]): p["te"] = hit["screen"][p["en"]]
+                h = hit.get("screen", {}).get(p["en"])
+                if h and sorted(re.findall(r"\d+", p["en"])) == sorted(re.findall(r"\d+", h)): p["te"] = h   # digits kept, else written again
             LOG.append(f"{sc['id']}: Telugu reused from the library")
-        if any(not s["text"]["te"] for s in sc["sentences"]): todo.append(sc)
+        if any(not s["text"]["te"] for s in sc["sentences"]) or any(p["en"].strip() and not p["te"] for p in strings(sc["data"], [])): todo.append(sc)
     groups, cur, n = [], [], 0
     for sc in todo:
         if cur and n + len(sc["sentences"]) > 22: groups.append(cur); cur, n = [], 0
@@ -57,7 +58,7 @@ def main():
                 "(same point, same order) and a Telugu version of every on-screen text.\n\n# RULES\n" + locked + "\n\n" + guide +
                 "\n\nTelugu facts, names and spellings come from the TELUGU NOTES below (where the English and Telugu notes differ, "
                 "follow the Telugu notes). Spoken Telugu: natural classroom Telugu, respectful forms for revered people, numbers and "
-                "years as spoken Telugu words (రెండు వేల ఇరవై ఐదు), no digits. On-screen text: short Telugu; digits allowed there.\n\n"
+                "years as spoken Telugu words (రెండు వేల ఇరవై ఐదు), no digits. On-screen text: short Telugu, and every number written in DIGITS exactly as in the English (1 March 2014 -> 1 మార్చి 2014).\n\n"
                 "# TELUGU NOTES\n" + part["te"] + "\n\n# JUST SAID\n" + json.dumps(prev[-3:], ensure_ascii=False) +
                 "\n\n# ENGLISH SCENES TO MATCH\n" + json.dumps(ask_scenes, ensure_ascii=False) +
                 '\n\nReturn ONLY JSON: {"<scene id>": {"beats": ["తెలుగు", ...same count...], "screen": {"<english text>": "తెలుగు"}}}')
@@ -78,7 +79,10 @@ def main():
                         if str(k).isdigit() and int(k) < len(sc["sentences"]) and not sc["sentences"][int(k)]["text"]["te"] and not beat_errs(te):
                             sc["sentences"][int(k)]["text"]["te"] = te.strip()
                 for p in strings(sc["data"], []):
-                    if not p["te"] and isinstance(screen.get(p["en"]), str) and screen[p["en"]].strip(): p["te"] = screen[p["en"]].strip()
+                    if not p["te"] and isinstance(screen.get(p["en"]), str) and screen[p["en"]].strip():
+                        t = screen[p["en"]].strip()
+                        # numbers on screen stay digits, exactly as in English (4 Nov 2026: a date shown as words overflowed)
+                        if sorted(re.findall(r"\d+", p["en"])) == sorted(re.findall(r"\d+", t)): p["te"] = t
                 miss_b = {k: s["text"]["en"] for k, s in enumerate(sc["sentences"]) if not s["text"]["te"]}
                 miss_s = sorted({p["en"] for p in strings(sc["data"], []) if p["en"].strip() and not p["te"]})
                 if miss_b or miss_s: fixes[sc["id"]] = {"beats (answer as {\"number\": \"తెలుగు\"})": miss_b, "screen": miss_s}
