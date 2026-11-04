@@ -68,7 +68,7 @@ def main():
                 "number of beats per scene, in order. Rewrite every beat by the recipe: complete flowing teacher sentences, "
                 "every fact of the old beat kept, explained and connected; nothing added.")
         prompt, done = base, None
-        for attempt in range(8):
+        for attempt in range(14):
             if not order: break
             model = order[0]
             try:
@@ -78,8 +78,10 @@ def main():
                 log.append(f"group {gi} {model}: HTTP {e.code} {msg[:160]}")
                 if e.code == 404 or (e.code == 429 and ("limit: 0" in msg or "PerDay" in msg)):
                     order.pop(0)                      # no free quota for this model today: next model
+                elif e.code >= 500:
+                    order.append(order.pop(0)); time.sleep(10)   # busy model: try the next one
                 else:
-                    time.sleep(40 if e.code == 429 else 5)
+                    time.sleep(40)
                 continue
             except Exception as e:
                 log.append(f"group {gi} {model}: {e}"); time.sleep(5); continue
