@@ -211,7 +211,11 @@ jobs:
             exit 0
           fi
           LID=$(basename "$(jq -r .lesson $R)" .ts); V=w/public/voice/$L; mkdir -p $V/$LID
-          if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then
+          U=$(jq -r '.reuse // empty' $R)
+          if [ -n "$U" ]; then   # Journal (4 Nov 2026): the voice of an earlier run of this video, pictures made again
+            python3 r2.py get "work/$ID/$U/voice-all.tgz" v.tgz && tar -xzf v.tgz -C w/public/voice
+            [ -s $V/$LID/durations.json ] && [ "$(jq length $V/$LID/durations.json)" -gt 0 ] || { echo "::error::no voice in run $U"; exit 1; }
+          elif [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then
             python3 r2.py get "$(jq -r .voice_tar $R)" v.tgz && tar -xzf v.tgz -C $V/$LID
             # "voice_patch": "voice/x.tgz" — a few re-voiced <scene>_<i>.wav laid over the voice above (one bad Telugu line
             # re-made without re-voicing the rest); durations.json is rebuilt from the wavs (1 Nov 2026)
@@ -231,6 +235,7 @@ jobs:
           else
             python3 r2.py get "work/$ID/$RUN/en-voice.tgz" v.tgz && tar -xzf v.tgz -C $V
           fi
+          [ "$(jq length $V/$LID/durations.json)" -gt 0 ] || { echo "::error::no voice for $LID"; exit 1; }   # never render a silent video
           tar -czf voice-all.tgz -C w/public/voice .
           python3 r2.py put voice-all.tgz "work/$ID/$RUN/voice-all.tgz"
           echo "ranges=$(python3 w/tools/ci_plan.py $V/$LID/durations.json $(jq -r '.chunks // 12' $R) | jq -c .ranges)" >> "$GITHUB_OUTPUT"
