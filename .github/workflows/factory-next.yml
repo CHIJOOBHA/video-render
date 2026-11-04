@@ -1,0 +1,43 @@
+# Factory stages (4 Nov 2026), checked every 30 minutes, so the whole plan runs with no one watching:
+#   1. APPSC EO scripts (started by hand)  ->  2. Group 2 scripts (start here once no factory run is left: Group 2 reuses
+#   every piece EO already has, from the library)  ->  3. renders on (queue/en-max = 2, Telugu queue unpaused).
+# Stage is kept in private storage jobs/factory/stage.json.
+name: factory-next
+on:
+  schedule: [{ cron: '7,37 * * * *' }]
+  workflow_dispatch:
+concurrency: { group: factory-next, cancel-in-progress: false }
+permissions: { contents: write, actions: write, id-token: write }
+jobs:
+  next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          R2="python3 r2.py"
+          ACTIVE=0
+          for st in queued in_progress; do
+            ACTIVE=$(( ACTIVE + $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/factory.yml/runs?status=$st&per_page=100" -q '.total_count') ))
+          done
+          STAGE=$($R2 get jobs/factory/stage.json st.json 2>/dev/null && jq -r .stage st.json || echo eo)
+          echo "stage $STAGE, factory runs active: $ACTIVE"
+          [ "$ACTIVE" = 0 ] || exit 0
+          if [ "$STAGE" = eo ]; then
+            BASE=$(cat queue/base_src)
+            ORD=30
+            while IFS=: read -r S P CHS; do
+              [ -n "$S" ] || continue
+              gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/factory.yml/dispatches" -f ref=main -f "inputs[subject]=$S" \
+                -f "inputs[prefix]=$P" -f "inputs[chapters]=$CHS" -f "inputs[base_src]=$BASE" -f "inputs[order]=$ORD" && echo "started $S"
+              ORD=$((ORD + 1)); sleep 2
+            done < queue/group2.txt
+            echo '{"stage":"g2"}' > st.json; $R2 put st.json jobs/factory/stage.json
+          elif [ "$STAGE" = g2 ]; then
+            echo 2 > queue/en-max; git rm -q queue/paused || true
+            git config user.name "video-factory"; git config user.email "video-factory@users.noreply.github.com"
+            git add -A queue && git commit -qm "renders on: all scripts written" && git push -q origin HEAD:main
+            echo '{"stage":"render"}' > st.json; $R2 put st.json jobs/factory/stage.json
+            echo "renders switched on"
+          fi
