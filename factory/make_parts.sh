@@ -12,7 +12,7 @@ for J in $(ls parts/*.json | sort -V); do
   if [ -n "$ONLY" ] && ! echo ",$ONLY," | grep -q ",$ID,"; then continue; fi
   echo "::group::$ID"
   python3 $F/gen_spec.py $J w out/$ID.json out/$ID.md; RC=$?
-  if [ $RC != 0 ]; then echo "  · $ID blocked — one fresh try"; NO_LIBRARY=1 python3 $F/gen_spec.py $J w out/$ID.json out/$ID.md; RC=$?; fi
+  if [ $RC != 0 ]; then echo "  · $ID blocked — retry (finished pieces come from the library)"; python3 $F/gen_spec.py $J w out/$ID.json out/$ID.md; RC=$?; fi
   $R2 put out/$ID.md "jobs/factory/$SUBJ/$ID.md"; [ -f out/$ID.json ] && $R2 put out/$ID.json "jobs/factory/$SUBJ/$ID.json"
   if [ $RC != 0 ]; then echo "::warning title=$ID::BLOCKED — $(sed -n 5,6p out/$ID.md | tr '\n' ' ')"; echo "::endgroup::"; continue; fi
   ( cd w && python3 tools/auto_lesson.py $ID ../out/$ID.json )
