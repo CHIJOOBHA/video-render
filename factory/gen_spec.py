@@ -104,7 +104,8 @@ def coverage(notes, scenes):
     from wordfreq import zipf_frequency
     spoken = " ".join(b["en"] for sc in scenes for b in sc.get("beats", []) if isinstance(b, dict) and isinstance(b.get("en"), str))
     screen = " ".join(t for sc in scenes for v in sc.get("visuals") or [] for t in texts(v))
-    low = re.sub(r"[\s-]+", " ", spoken.lower())
+    low = re.sub(r"[\s-]+", " ", spoken.lower().replace(",", " "))
+    low = re.sub(r" and (?=(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b)", " ", re.sub(r"\s+", " ", low))
     names, nums = set(), set()
     notes = re.sub(r"^(#+\s*)\d+(?:\.\d+)*\s+", r"\1", notes, flags=re.M)     # section numbers are not spoken (teacher-script rule)
     for w in re.findall(r"\b[A-Z][A-Za-z'’]+|\b[A-Z]{2,}\b", notes):
