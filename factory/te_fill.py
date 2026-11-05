@@ -7,6 +7,12 @@ from llm import ask, LOG
 import lib
 
 TE = re.compile(r"[ఀ-౿]")
+# 5 Nov 2026: ten parts at once used up Gemini's free daily quota and the rest fell to the weakest 'lite' model, which left beats
+# empty. Telugu is written by the Anthropic writer first, Gemini second (its lite models are never used for Telugu).
+PREFER = ("anthropic", "gemini")
+import llm
+_gm = llm._g_models
+llm._g_models = lambda key: [m for m in _gm(key) if "lite" not in m]
 
 def strings(v, out):
     """Every {en, te} pair inside a scene's data (screen text) -> list of the pair dicts."""
@@ -38,7 +44,7 @@ def main():
     keys, todo = {}, []
     for sc in scenes:
         ens = [s["text"]["en"] for s in sc["sentences"]]
-        keys[sc["id"]] = lib.key(json.dumps([ens, sorted({p["en"] for p in strings(sc["data"], [])})]))
+        keys[sc["id"]] = lib.key("te2|" + json.dumps([ens, sorted({p["en"] for p in strings(sc["data"], [])})]))
         hit = lib.get("te", keys[sc["id"]])
         if hit and len(hit.get("beats") or []) == len(ens):
             for s, te in zip(sc["sentences"], hit["beats"]): s["text"]["te"] = te
@@ -72,7 +78,7 @@ def main():
         fixes = {}
         for rnd in range(3):
             out = ask(base if rnd == 0 else base + "\n\n# FIX ONLY THESE\n" + json.dumps(fixes, ensure_ascii=False),
-                      f"te group {gi + 1}/{len(groups)} round {rnd}", prefer=("gemini", "anthropic"))   # Telugu: Gemini only (best Telugu); waits for quota
+                      f"te group {gi + 1}/{len(groups)} round {rnd}", prefer=PREFER)
             if not isinstance(out, dict): continue
             fixes = {}
             for sc in g:
@@ -123,7 +129,7 @@ def main():
                   "\n\nAdd each one, completely and exactly as the Telugu notes say, into the Telugu beat where its English beat "
                   "teaches it (rewrite only those beats; keep everything else; same style; no digits; numbers as Telugu words). "
                   'Return ONLY JSON: {"<beat id>": "new Telugu beat", …}\n\n# RULES\n' + guide + "\n\n# TELUGU NOTES\n" +
-                  part["te"] + "\n\n# BEATS\n" + json.dumps(idx, ensure_ascii=False), f"te ledger fix {rnd}", prefer=("gemini", "anthropic"))
+                  part["te"] + "\n\n# BEATS\n" + json.dumps(idx, ensure_ascii=False), f"te ledger fix {rnd}", prefer=PREFER)
         for bid, te in (out or {}).items():
             sid, _, k = str(bid).partition("#")
             for sc in scenes:
