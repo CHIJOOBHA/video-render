@@ -1,0 +1,35 @@
+# Check which GPU platforms are connected (names and balance only; key values never printed). Run by hand.
+name: gpu-keys
+on: workflow_dispatch
+permissions: { contents: read }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Try each GPU platform
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          def have(*k): return all(os.environ.get(x, "").strip() for x in k)
+          for name, keys in (("modal", ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET")), ("kaggle", ("KAGGLE_USERNAME", "KAGGLE_KEY")),
+                             ("runpod", ("RUNPOD_API_KEY",)), ("vast", ("VAST_API_KEY",))):
+              print(f"{name}: {'saved' if have(*keys) else 'NOT saved'}")
+          if have("RUNPOD_API_KEY"):
+              req = urllib.request.Request("https://api.runpod.io/graphql", method="POST",
+                  data=json.dumps({"query": "query { myself { clientBalance } }"}).encode(),
+                  headers={"Authorization": "Bearer " + os.environ["RUNPOD_API_KEY"].strip(), "content-type": "application/json",
+                           "User-Agent": "video-render-check"})
+              try:
+                  r = json.load(urllib.request.urlopen(req, timeout=60))
+                  if r.get("errors"): print("runpod: key NOT working -", str(r["errors"])[:300])
+                  else: print(f"runpod: key working, balance ${r['data']['myself']['clientBalance']:.2f}")
+              except urllib.error.HTTPError as e:
+                  print(f"runpod: key NOT working - HTTP {e.code} {e.read()[:200]!r}")
+          PY
