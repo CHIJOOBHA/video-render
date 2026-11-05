@@ -107,15 +107,19 @@ def main():
     from gen_spec import sec_ids
     ledger.SKIP = sec_ids(part["te"], part.get("chapter"))
     led = ledger.points(part["te"], "te") if not bad_total else []
-    miss, rows = [], []
+    miss, rows, adds = [], [], []
     for rnd in range(3):
         if not led: break
         beats = [(f"{sc['id']}#{k}", s["text"]["te"]) for sc in scenes for k, s in enumerate(sc["sentences"])]
         miss, rows = ledger.missing(led, beats, "te")
-        if not miss or rnd == 2: break
+        adds = ledger.added(part["te"], beats, "te")
+        if (not miss and not adds) or rnd == 2: break
         idx = [{"id": f"{sc['id']}#{k}", "en": s["text"]["en"], "te": s["text"]["te"]} for sc in scenes for k, s in enumerate(sc["sentences"])]
         out = ask("The Telugu lesson below misses these points of the TELUGU NOTES (or teaches them wrongly):\n" +
                   "\n".join(f"- {p['point']}" for p in miss) +
+                  ("\n\nand these beats add or change something the Telugu notes do not say (fix them: say it exactly as the notes "
+                   "say, remove what the notes do not give, teach labels as spoken sentences, drop repeats):\n" +
+                   "\n".join(f"- {a['beat']} {a['kind']}: \"{a['words']}\" (notes: {a['notes_say']})" for a in adds) if adds else "") +
                   "\n\nAdd each one, completely and exactly as the Telugu notes say, into the Telugu beat where its English beat "
                   "teaches it (rewrite only those beats; keep everything else; same style; no digits; numbers as Telugu words). "
                   'Return ONLY JSON: {"<beat id>": "new Telugu beat", …}\n\n# RULES\n' + guide + "\n\n# TELUGU NOTES\n" +
@@ -125,6 +129,7 @@ def main():
             for sc in scenes:
                 if sc["id"] == sid and k.isdigit() and int(k) < len(sc["sentences"]) and isinstance(te, str) and not beat_errs(te):
                     sc["sentences"][int(k)]["text"]["te"] = te.strip()
+    if adds: bad_total += [f"added/changed: {len(adds)} Telugu beats — " + "; ".join(f"{a['kind']} {a['words'][:50]}" for a in adds[:6])]
     if led and miss: bad_total += [f"ledger: {len(miss)} of {len(led)} Telugu notes points not taught — " + "; ".join(p["point"][:70] for p in miss[:6])]
     if not led and not bad_total: bad_total.append("ledger: no Telugu ledger could be made")
     if not bad_total: spec.pop("te_pending", None)

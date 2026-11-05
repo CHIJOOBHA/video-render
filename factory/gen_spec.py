@@ -58,6 +58,8 @@ def scene_errs(sc):
         m = BANNED.search(b["en"])
         if m: e.append(f"{sid} beat {i}: essay word '{m.group(0)}' — speak like a teacher")
         if re.search(r"(^|\s)(Q\s?\w+|See Chapter)\s*:", b["en"]): e.append(f"{sid} beat {i}: colon list — full spoken sentences")
+        if re.search(r"\b(box|caption|heading|table) (is titled|is called|reads)\b|\bAsked in \w+ Paper|Paper-I ?Q", b["en"], re.I):
+            e.append(f"{sid} beat {i}: reads a notes label aloud — teach it in spoken sentences instead")
         n = b.get("note")
         if n is not None and not (isinstance(n, dict) and (isinstance(n.get("t"), str) or isinstance(n.get("h"), str))):
             e.append(f"{sid} beat {i}: note must be {{\"t\": \"…\"}} or {{\"h\": \"…\", \"clear\": true}}")
@@ -169,6 +171,12 @@ def say_numbers(t):
     from num2words import num2words
     f = lambda m: num2words(int(m.group(0)), to="year") if 1100 <= int(m.group(0)) <= 2099 else num2words(int(m.group(0)))
     return re.sub(r"\d+", f, re.sub(r"(\d),(\d)", r"\1\2", t)).replace("–", " to ").replace("@", " at ")
+
+def spoken_fix(t):
+    """Speech clean-up for every beat (5 Nov 2026): 'Paper-I' -> 'Paper One', 'Q4' -> 'question four', then numbers as words."""
+    t = re.sub(r"\bPaper[- ]?(I{1,3})\b(?!-)", lambda m: "Paper " + {"I": "One", "II": "Two", "III": "Three"}[m.group(1)], t)
+    t = re.sub(r"\bQ\s?(\d+)", r"question \1", t)
+    return speak_digits(t) if re.search(r"\d", t) else t
 
 def speak_digits(t):
     """Any digits the writer left in SPOKEN English become words (same number, nothing changed): 1st -> first,
@@ -386,6 +394,8 @@ SHAPE = """Return ONLY one JSON object (ENGLISH only — the Telugu is written l
 All on-screen text and notes are plain English strings (not pairs). Never put a section or table number (1.2, Table 1.2a)
 in speech or on screen: say "this table", "the next section", or name the topic.
 Each scene teaches one idea in 3–9 beats. A beat = 1–3 spoken sentences (15–40 words).
+Teach each point ONCE, fully (one short reminder of a key line is fine); never read a box title, heading or notes label
+aloud; never add advice, judgements or facts the notes do not give.
 TIMING: every item of a drawing appears on the beat ("b") where its words are SPOKEN — never earlier. A drawing starts ("at") on
 the beat that speaks its first item; a drawing stays until the next one starts, so every item of a drawing must be spoken
 before the next drawing's first beat."""
@@ -435,7 +445,7 @@ def main():
             if not h_bad:     # every notes point must be taught by the stored piece too
                 hb = [(f"{sc['id']}#{i}", b["en"]) for sc in hit["scenes"] for i, b in enumerate(sc.get("beats") or []) if isinstance(b, dict)]
                 lp = ledger.points(piece, "en"); hm, hr = ledger.missing(lp, hb, "en") if lp else ([1], [])
-                if hm: h_bad = True
+                if hm or ledger.added(piece, hb, "en"): h_bad = True
                 else: ledgers.append((ci + 1, lp, hr))
             if h_bad: LOG.append(f"piece {ci + 1}: library piece {lk} fails today's checks — written again"); hit = None
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
@@ -449,13 +459,16 @@ def main():
                 "\n\n# TEACH EVERY POINT OF THESE NOTES — every sentence, bullet, table row, name, number, date, section, term, "
                 "exam box and source note — in order, explained like a teacher (at least one beat per notes point; usually "
                 "more words than the notes, never fewer). Leave out only practice MCQs.\n" + piece + "\n\n# ANSWER\n" + SHAPE)
-        out, errs, mn, mu, miss, best = None, [], [], [], [], None
+        out, errs, mn, mu, miss, best, adds = None, [], [], [], [], None, []
         led = ledger.points(piece, "en")
         for rnd in range(5):
             prompt = base if out is None else (base + "\n\n# YOUR LAST ANSWER\n" + json.dumps(out) + "\n\n# CHECKER FOUND\n" +
                      "\n".join(errs[:60]) +
                      (f"\nNever spoken (teach each where the notes have it): {mn}" if mn else "") +
                      (f"\nNumbers never spoken as words: {mu}" if mu else "") +
+                     ("\nSENTENCES THAT BREAK 'NOTHING ADDED, NOTHING CHANGED' — fix each (remove what the notes do not say, say "
+                      "it exactly as the notes say, teach labels as spoken sentences, drop repeats):\n" +
+                      "\n".join(f"- {a['beat']} {a['kind']}: \"{a['words']}\" (notes: {a['notes_say']})" for a in adds) if adds else "") +
                      ("\nPOINTS OF THE NOTES NOT TAUGHT (or taught wrongly) — teach every one, completely and exactly, in the notes' "
                       "order, at its right place:\n" + "\n".join(f"- {p['point']}" for p in miss) if miss else "") +
                      (f"\nToo short: {sw} spoken words for {nw} words of notes — explain every point fully." if sw < 0.9 * nw else "") +
@@ -467,7 +480,7 @@ def main():
                                    for x in spoken_ids(b["en"], ids)})
                 for sc in out["scenes"]:
                     for b in sc.get("beats") or []:
-                        if isinstance(b, dict) and isinstance(b.get("en"), str) and re.search(r"\d", b["en"]): b["en"] = speak_digits(b["en"])
+                        if isinstance(b, dict) and isinstance(b.get("en"), str): b["en"] = spoken_fix(b["en"])
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
             errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
@@ -490,12 +503,13 @@ def main():
             beats_all = [(f"{sc['id']}#{i}", b["en"]) for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
                          if isinstance(b, dict) and isinstance(b.get("en"), str)]
             miss, rows = ledger.missing(led, beats_all, "en") if led else ([], [])
+            adds = ledger.added(piece, beats_all, "en")
             # 5 Nov 2026: a rewrite can fix some points and drop others — keep the best answer seen, not the last one
-            bad = len(miss) * 3 + len(mn) * 3 + len(mu) * 2 + len(hard) * 2 + (5 if sw < 0.9 * nw else 0)
-            if best is None or bad < best[0]: best = (bad, json.loads(json.dumps(out)), errs, mn, mu, miss, rows, nw, sw)
-            if not mn and not mu and not miss and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
+            bad = len(miss) * 3 + len(adds) * 3 + len(mn) * 3 + len(mu) * 2 + len(hard) * 2 + (5 if sw < 0.9 * nw else 0)
+            if best is None or bad < best[0]: best = (bad, json.loads(json.dumps(out)), errs, mn, mu, miss, rows, nw, sw, adds)
+            if not mn and not mu and not miss and not adds and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
-        if best: _, out, errs, mn, mu, miss, rows, nw, sw = best
+        if best: _, out, errs, mn, mu, miss, rows, nw, sw, adds = best
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
         for sc in out["scenes"]:
             ok = [v for j, v in enumerate(sc.get("visuals") or []) if not any(e.startswith(f"{sc['id']} visual {j}") for e in errs)]
@@ -510,8 +524,9 @@ def main():
         hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
         ledgers.append((ci + 1, led, rows if led else []))
         if not led: blocking.append(f"piece {ci + 1}: no ledger could be made")
+        if adds: blocking.append(f"piece {ci + 1}: {len(adds)} sentences add or change something: " + "; ".join(f"{a['kind']} {a['words'][:60]}" for a in adds[:6]))
         if miss: blocking.append(f"piece {ci + 1}: {len(miss)} of {len(led)} notes points not taught: " + "; ".join(p["point"][:80] for p in miss[:8]))
-        if not mn and not mu and not miss and not hard and sw >= 0.7 * nw:
+        if not mn and not mu and not miss and not adds and not hard and sw >= 0.7 * nw:
             lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
         if mn: blocking.append(f"piece {ci + 1}: names/terms never spoken {mn}")

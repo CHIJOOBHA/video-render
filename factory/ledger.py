@@ -106,3 +106,29 @@ def missing(ledger, beats, lang):
     rows = [f"| {p['n']} | {p['point'][:110].replace('|', '/')} | {cov.get(p['n']) or 'MISSING'} |" for p in ledger]
     LOG.append(f"ledger {lang}: {len(ledger)} points, {len(miss)} not taught")
     return miss, rows
+
+def added(notes, beats, lang):
+    """Nothing added, nothing changed (LOCKED rule), 5 Nov 2026: every claim the lesson makes must be in the notes, unchanged.
+    The AI lists beats that add a fact / number / name / date / advice / conclusion the notes do not give, change a fact's
+    meaning ('were in 2012' -> 'came after 2012'), read a box label or heading aloud, or repeat a point already taught."""
+    if not beats: return []
+    lines = "\n".join(f"[{i}] {t}" for i, (_, t) in enumerate(beats))
+    ans = ask("You check a spoken lesson against its notes, strictly. List every beat that does any of these:\n"
+              "A) ADDED — states a fact, number, name, date, rule, advice or conclusion that the notes do not give "
+              "(explaining what a notes term means in plain words, linking two notes facts, greeting, or saying 'remember this' "
+              "is fine; giving exam advice or a judgement the notes do not give is ADDED);\n"
+              "B) CHANGED — says something that differs from the notes in meaning (a fact, number, date, order, who did what);\n"
+              "C) LABEL — reads a box title, a heading or a notes label aloud ('the trap box is titled…', 'Asked in 2023 "
+              "Paper-I Q4:') instead of teaching it in spoken sentences;\n"
+              "D) REPEAT — teaches again, in full, a point already taught in an earlier beat (one short reminder line of a key "
+              "point is fine).\nDo not flag correct teaching. Return ONLY JSON: "
+              '{"problems": [{"beat": 3, "kind": "ADDED|CHANGED|LABEL|REPEAT", "words": "…", "notes_say": "…"}]}'
+              f"\n\n# NOTES ({'Telugu' if lang == 'te' else 'English'})\n" + notes + "\n\n# BEATS\n" + lines,
+              f"added check {lang}", prefer=("anthropic", "gemini", "deepseek"))
+    out = []
+    for p in (ans or {}).get("problems") or []:
+        b = p.get("beat") if isinstance(p, dict) else None
+        if isinstance(b, int) and 0 <= b < len(beats) and p.get("kind") in ("ADDED", "CHANGED", "LABEL", "REPEAT"):
+            out.append({"beat": beats[b][0], "kind": p["kind"], "words": str(p.get("words", ""))[:200], "notes_say": str(p.get("notes_say", ""))[:200]})
+    LOG.append(f"added check {lang}: {len(out)} problems")
+    return out
