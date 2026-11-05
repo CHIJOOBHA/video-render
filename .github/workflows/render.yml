@@ -319,16 +319,20 @@ jobs:
           LID=$(basename "$(jq -r .lesson $R)" .ts); D=public/voice/$L/$LID/durations.json
           cd w && npm ci --no-audit --no-fund --silent
           set +e
+          # picture-voice timing (5 Nov 2026): no element shows before the sentence that says it
+          z=0; case "$(jq -r .lesson $R)" in src/lessons/auto/auto-*)
+            python3 $GITHUB_WORKSPACE/factory/sync.py --check "src/lessons/auto/$(basename "$(jq -r .lesson $R)" .ts | sed 's/^auto-//').json" > sync.txt 2>&1; z=$?
+            echo "::notice title=timing::$(grep -c EARLY sync.txt) elements shown before their words";; esac
           python3 tools/qa_layout.py $D $COMP $RUNNER_TEMP/lay > lay.txt 2>&1; a=$?
           QA_LANG=$L QA_TMP=$RUNNER_TEMP python3 tools/qa_timeline.py "$(jq -r .lesson $R)" "$(jq -r .spec $R)" $D > tl.txt 2>&1; b=$?
           python3 tools/qa_sentences.py $D $COMP $RUNNER_TEMP/sen > sen.txt 2>&1; c=$?
           set -e
           echo "::notice title=layout::$(tail -1 lay.txt)"; echo "::notice title=timeline::$(tail -1 tl.txt) ($(grep -c . tl.txt) lines)"; echo "::notice title=sentences::$(tail -1 sen.txt)"
-          cat lay.txt tl.txt sen.txt > qa-report.txt
+          cat lay.txt tl.txt sen.txt $( [ -f sync.txt ] && echo sync.txt ) > qa-report.txt
           python3 $GITHUB_WORKSPACE/r2.py put qa-report.txt "work/$ID/${{ github.run_id }}/qa/report.txt"
           for f in $RUNNER_TEMP/sen/sheet-*.png $RUNNER_TEMP/sen/text-check.json; do python3 $GITHUB_WORKSPACE/r2.py put "$f" "work/$ID/${{ github.run_id }}/qa/$(basename $f)"; done
-          echo "{\"layout\":$a,\"timeline\":$b,\"sentences\":$c}" > qa.json; python3 $GITHUB_WORKSPACE/r2.py put qa.json "work/$ID/${{ github.run_id }}/qa/result.json"
-          [ $a = 0 ] && [ $b = 0 ] && [ $c = 0 ]
+          echo "{\"layout\":$a,\"timeline\":$b,\"sentences\":$c,\"timing\":$z}" > qa.json; python3 $GITHUB_WORKSPACE/r2.py put qa.json "work/$ID/${{ github.run_id }}/qa/result.json"
+          [ $a = 0 ] && [ $b = 0 ] && [ $c = 0 ] && [ $z = 0 ]
 
   audio:     # the sound track is rendered at the same time as the picture pieces (was done after them in finish)
     needs: [prep, plan]

@@ -377,7 +377,10 @@ SHAPE = """Return ONLY one JSON object (ENGLISH only — the Telugu is written l
              "visuals": [{"p": "tiles", "at": 0, "out": 4, "cols": 2, "items": [{"h": "title", "t": "subline", "b": 1}]}]}]}
 All on-screen text and notes are plain English strings (not pairs). Never put a section or table number (1.2, Table 1.2a)
 in speech or on screen: say "this table", "the next section", or name the topic.
-Each scene teaches one idea in 3–9 beats. A beat = 1–3 spoken sentences (15–40 words)."""
+Each scene teaches one idea in 3–9 beats. A beat = 1–3 spoken sentences (15–40 words).
+TIMING: every item of a drawing appears on the beat ("b") where its words are SPOKEN — never earlier. A drawing starts ("at") on
+the beat that speaks its first item; a drawing stays until the next one starts, so every item of a drawing must be spoken
+before the next drawing's first beat."""
 
 def main():
     part, studio, out_spec, out_rep = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -407,7 +410,13 @@ def main():
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
             # a stored piece must still pass today's checks (they get stricter); otherwise it is written again
             h_mn, h_mu, h_nw, h_sw = coverage(piece, hit["scenes"])
-            h_bad = h_mn or h_mu or added_names(part["en"] + " " + part.get("chapter_title", ""), hit["scenes"]) or \
+            try:
+                import copy, sync
+                tmp = build(part, copy.deepcopy(hit["scenes"]))[0]
+                for sc2 in tmp["scenes"]: sync.sync_scene(sc2); sync.no_empty_picture(sc2)
+                h_time = sync.timing_report(tmp)
+            except Exception: h_time = []
+            h_bad = h_time or h_mn or h_mu or added_names(part["en"] + " " + part.get("chapter_title", ""), hit["scenes"]) or \
                     [x for sc in hit["scenes"] for x in scene_errs(sc) if " visual " not in x and "sentence over" not in x]
             if h_bad: LOG.append(f"piece {ci + 1}: library piece {lk} fails today's checks — written again"); hit = None
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
@@ -440,6 +449,14 @@ def main():
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
             errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
+            # picture-voice timing (5 Nov 2026): nothing may appear before the beat in which its words are said
+            try:
+                import copy, sync
+                tmp = build(part, copy.deepcopy(out["scenes"]))[0]; rep = []
+                for sc2 in tmp["scenes"]: sync.sync_scene(sc2); sync.no_empty_picture(sc2)
+                rep = sync.timing_report(tmp)
+                errs += [f"timing: {x}" for x in rep]
+            except Exception as e: LOG.append(f"timing check skipped: {e}")
             if said_ids: errs.append(f"section/table numbers spoken {said_ids} — never say a section or table number; say 'this table', "
                                      "'the next section' or name its topic instead")
             add = added_names(part["en"] + " " + part.get("chapter_title", ""), out["scenes"])
@@ -447,7 +464,7 @@ def main():
             mn, mu, nw, sw = coverage(piece, out["scenes"])
             LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
                        f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
-            hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
+            hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
             if not mn and not mu and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
@@ -461,7 +478,7 @@ def main():
         all_scenes += out["scenes"]
         lex.update({k.lower(): v for k, v in (out.get("lexicon") or {}).items()
                     if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())})
-        hard = [e for e in errs if " visual " not in e and "sentence over" not in e]
+        hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
         if not mn and not mu and not hard and sw >= 0.7 * nw:
             lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
