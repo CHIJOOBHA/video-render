@@ -43,9 +43,8 @@ def payload():
     with tarfile.open(p, "w:gz") as t:
         t.add(sentences, "sentences.json")
         t.add(f"{src}/tools/voice_te.py", "tools/voice_te.py")
-        t.add(f"{src}/voices/te-chijobha", "voices/te-chijobha")
-        if TE_REF:                                  # the clip and its ref.txt beside it
-            t.add(os.path.dirname(f"{src}/{TE_REF}"), os.path.dirname(TE_REF))
+        d = os.path.dirname(TE_REF) if TE_REF else "voices/te-chijobha"   # only the clip in use (+ its ref.txt)
+        for x in ("ref.wav", "ref.txt"): t.add(f"{src}/{d}/{x}", f"{d}/{x}")
     return p
 
 
@@ -110,7 +109,9 @@ IMG = "pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime"
 
 
 def runpod_run(p):
-    sh("pip", "install", "-q", "runpod")
+    lib_dir = os.path.join(tempfile.gettempdir(), "gpu-pylib")   # installed beside us, so this Python sees it
+    sh(sys.executable, "-m", "pip", "install", "-q", "--target", lib_dir, "runpod")
+    sys.path.insert(0, lib_dir)
     import runpod
     runpod.api_key = os.environ["RUNPOD_API_KEY"].strip()
 

@@ -13,9 +13,13 @@ buf = io.BytesIO()
 with tarfile.open(fileobj=buf, mode="w:gz") as t:
     t.add(sentences, "sentences.json")
     t.add(f"{src}/tools/voice_te.py", "tools/voice_te.py")
-    t.add(f"{src}/voices/te-chijobha", "voices/te-chijobha")
-    if os.environ.get("TE_REF", "").strip():        # 5 Nov 2026: another voice clip (e.g. his English clip) + its ref.txt
-        t.add(os.path.dirname(f"{src}/{os.environ['TE_REF'].strip()}"), os.path.dirname(os.environ["TE_REF"].strip()))
+    # only the ONE voice clip this video uses (5 Nov 2026: packing his Telugu clips + his English clip made the job too
+    # big for Kaggle -> "SaveKernel 400 Bad Request"); old-hook-7s is never packed
+    ref = os.environ.get("TE_REF", "").strip()
+    if ref:
+        d = os.path.dirname(ref); t.add(f"{src}/{d}/ref.wav", f"{d}/ref.wav"); t.add(f"{src}/{d}/ref.txt", f"{d}/ref.txt")
+    else:
+        for x in ("ref.wav", "ref.txt"): t.add(f"{src}/voices/te-chijobha/{x}", f"voices/te-chijobha/{x}")
 payload = base64.b64encode(buf.getvalue()).decode()
 import shlex   # ONLY (re-voice lines), TE_REF (voice clip inside the job), TE_FLOW passed to the voice on Kaggle
 ENVS = " ".join(f"{k}={shlex.quote(('/tmp/job/' + v) if k == 'TE_REF' else v)}"
