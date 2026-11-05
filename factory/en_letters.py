@@ -5,11 +5,10 @@ the way he says English ("ప్రిపేరింగ్ ఫర్ కాం�
 Screen text never changes — only what the voice reads. The render's English listening check (qa_final) then hears the
 finished video against the ORIGINAL English lines, so a word that came out wrong blocks the video.
   python3 factory/en_letters.py <sentences.json (English)> <out sentences-voice.json>
-Same keys and line counts as the input. Lines already converted before (any video) come from the library."""
+Same keys and line counts as the input."""
 import json, re, sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from llm import ask, LOG
-import lib
 
 LATIN = re.compile(r"[A-Za-z0-9]")
 TE = re.compile(r"[ఀ-౿]")
@@ -48,12 +47,10 @@ def main():
     src, out = sys.argv[1:3]
     sents = json.load(open(src, encoding="utf-8"))
     flat = [(sc, i, s) for sc, ss in sents.items() for i, s in enumerate(ss)]
-    res, todo = {}, []
-    for sc, i, s in flat:
-        hit = lib.get("enl", lib.key("enl|" + s))
-        if hit and not bad(s, hit.get("te")): res[(sc, i)] = hit["te"]
-        else: todo.append((sc, i, s))
-    LOG.append(f"{len(flat) - len(todo)} of {len(flat)} lines from the library")
+    # no per-line library lookup (5 Nov 2026): each miss retried for ~15 s, 103 lines = 26 min before any AI call.
+    # A whole video is ~3 quick AI calls, so lines are simply written fresh.
+    res, todo = {}, list(flat)
+    LOG.append(f"{len(flat)} lines to write in Telugu letters")
     for b in range(0, len(todo), 40):
         batch = todo[b:b + 40]
         ask_d = {str(n + 1): s for n, (_, _, s) in enumerate(batch)}
@@ -71,7 +68,6 @@ def main():
                 if why: fixes[k] = {"english": s, "problem": why}; continue
                 sc, i, _ = batch[int(k) - 1]
                 res[(sc, i)] = te.strip()
-                lib.put("enl", lib.key("enl|" + s), {"te": te.strip()})
     left = [f"{sc}_{i}: {s[:70]}" for sc, i, s in flat if (sc, i) not in res]
     if left:
         print("::error title=English letters::" + f"{len(left)} lines could not be written in Telugu letters: " + " | ".join(left[:5]))
