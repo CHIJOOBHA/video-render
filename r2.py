@@ -23,7 +23,9 @@ def call(action, **q):
             return json.load(urllib.request.urlopen(req, timeout=120))
         except urllib.error.HTTPError as e:
             err = f"{action} {q.get('key', q.get('prefix'))}: HTTP {e.code} {e.read()[:200]!r}"
-            if e.code < 500 and e.code != 429: sys.exit(err)
+            # 403 retried too (5 Nov 2026): GitHub's identity check can fail for a moment mid-job (a finished voice part was lost)
+            if e.code < 500 and e.code not in (429, 403): sys.exit(err)
+            if e.code == 403 and n >= 2: sys.exit(err)
         except (urllib.error.URLError, TimeoutError) as e:
             err = f"{action}: {e}"
         print(f"retry {n + 1}: {err}", file=sys.stderr); time.sleep(5 * (n + 1) + random.random() * 5)
