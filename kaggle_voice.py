@@ -14,7 +14,12 @@ with tarfile.open(fileobj=buf, mode="w:gz") as t:
     t.add(sentences, "sentences.json")
     t.add(f"{src}/tools/voice_te.py", "tools/voice_te.py")
     t.add(f"{src}/voices/te-chijobha", "voices/te-chijobha")
+    if os.environ.get("TE_REF", "").strip():        # 5 Nov 2026: another voice clip (e.g. his English clip) + its ref.txt
+        t.add(os.path.dirname(f"{src}/{os.environ['TE_REF'].strip()}"), os.path.dirname(os.environ["TE_REF"].strip()))
 payload = base64.b64encode(buf.getvalue()).decode()
+import shlex   # ONLY (re-voice lines), TE_REF (voice clip inside the job), TE_FLOW passed to the voice on Kaggle
+ENVS = " ".join(f"{k}={shlex.quote(('/tmp/job/' + v) if k == 'TE_REF' else v)}"
+                for k, v in ((k, os.environ.get(k, "").strip()) for k in ("ONLY", "TE_REF", "TE_FLOW")) if v)
 
 kernel = r'''
 import base64, io, os, subprocess, tarfile, hashlib
@@ -29,10 +34,10 @@ for f in ("config.json", "checkpoints/vocab.txt", "model.safetensors"):
     sh(f"curl -sSL --retry 4 -o {M}/{f} https://huggingface.co/Aditya02/IndicF5/resolve/main/{f}")
 h = hashlib.sha256(open(M + "/model.safetensors", "rb").read()).hexdigest()
 assert h.startswith("ba7f3671180fb778"), "weights fingerprint mismatch"
-sh(f"cd {W} && INDICF5_DIR={M} python tools/voice_te.py sentences.json /tmp/te-out")
+sh(f"cd {W} && ENVS_HERE INDICF5_DIR={M} python tools/voice_te.py sentences.json /tmp/te-out")
 sh("tar -czf /kaggle/working/te.tgz -C /tmp/te-out .")
 print("DONE", flush=True)
-'''.replace("PAYLOAD", repr(payload))
+'''.replace("PAYLOAD", repr(payload)).replace("ENVS_HERE", ENVS)
 
 d = tempfile.mkdtemp()
 open(f"{d}/te_voice.py", "w").write(kernel)
@@ -63,6 +68,7 @@ if not os.path.exists(f"{o}/te.tgz"):
 with tarfile.open(f"{o}/te.tgz") as t:
     got = {m.name.lstrip("./") for m in t.getmembers() if m.name.endswith(".wav")}
 want = sum(len(v) for v in json.load(open(sentences, encoding="utf-8")).values())
+if os.environ.get("ONLY", "").strip(): want = len([x for x in os.environ["ONLY"].split(",") if x.strip()])
 if len(got) < want:
     sys.exit(f"kaggle made {len(got)} of {want} sentences")
 os.replace(f"{o}/te.tgz", out_tgz)

@@ -62,6 +62,10 @@ jobs:
         with: { node-version: 22, cache: npm, cache-dependency-path: w/package-lock.json }
       - id: voice
         name: Voice plan
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); L=$(jq -r '.lang // "en"' $R)
           cd w
@@ -84,6 +88,13 @@ jobs:
           node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" sentences.json
           python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
           if [ "$L" = "te" ]; then
+            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
+          elif [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then
+            # 5 Nov 2026: English in CHIJOBHA's own voice (his samples E/G) — the Telugu voice engine reads the English
+            # written in Telugu letters (factory/en_letters.py); voiced on the same GPU/CPU path as Telugu.
+            sudo python3 -m pip install -q --break-system-packages num2words wordfreq
+            python3 $GITHUB_WORKSPACE/factory/en_letters.py sentences.json sentences-voice.json
+            python3 $GITHUB_WORKSPACE/r2.py put sentences-voice.json "work/$ID/$GITHUB_RUN_ID/sentences-voice.json"
             N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
           else
             # system-wide install (4 Nov 2026): a user-site install was invisible to tools/missing_terms.py ("No module named wordfreq")
@@ -134,6 +145,11 @@ jobs:
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
+          if [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then   # English in his voice: his English clip + Telugu-letters lines
+            python3 r2.py get "work/$ID/$RUN/sentences-voice.json" sentences.json
+            mkdir -p w/voices/en-chijobha && python3 r2.py get voice/en-chijobha/ref.wav w/voices/en-chijobha/ref.wav && python3 r2.py get voice/en-chijobha/ref.txt w/voices/en-chijobha/ref.txt
+            jq '.te_ref = "voices/en-chijobha/ref.wav"' $R > r2.json && mv r2.json $R
+          fi
           export ONLY="$(jq -r '.redo // [] | join(",")' $R)" TE_REF="$(jq -r '.te_ref // empty' $R)" TE_FLOW="$(jq -r '.te_flow // empty' $R)"
           python3 gpu/voice.py w sentences.json gpu-out "$ID" "$RUN"
           for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/$ID/$RUN/te/$(basename "$f")"; done
@@ -162,6 +178,11 @@ jobs:
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); N=$(jq -r '.te_shards // 16' $R)
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/${{ github.run_id }}/sentences.json" sentences.json
+          if [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then   # English in his voice: his English clip + Telugu-letters lines
+            python3 r2.py get "work/$ID/${{ github.run_id }}/sentences-voice.json" sentences.json
+            mkdir -p w/voices/en-chijobha && python3 r2.py get voice/en-chijobha/ref.wav w/voices/en-chijobha/ref.wav && python3 r2.py get voice/en-chijobha/ref.txt w/voices/en-chijobha/ref.txt
+            jq '.te_ref = "voices/en-chijobha/ref.wav"' $R > r2.json && mv r2.json $R
+          fi
           sudo apt-get -qq update && sudo apt-get -qq install -y ffmpeg >/dev/null
           sleep $(( ${{ matrix.shard }} * 4 ))   # stagger the 1.4 GB model downloads
           bash w/tools/setup_indicf5.sh 2>&1 | tail -3
@@ -232,7 +253,7 @@ jobs:
               (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" ../sentences.json)
               python3 w/tools/durations.py sentences.json $V/$LID
             fi
-          elif [ "$L" = "te" ]; then
+          elif [ "$L" = "te" ] || [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then
             pip install -q soundfile
             python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
             for RR in $(jq -r '.te_from // empty' $R) $RUN; do   # earlier run's voice first, then this run's re-voiced lines on top

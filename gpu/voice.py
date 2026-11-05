@@ -3,7 +3,7 @@
   python3 gpu/voice.py <src_dir> <sentences.json> <out_dir> <video_id> <run_id>
 Order comes from queue/gpu-order (default below). A platform is tried only if its secrets are saved in the repo:
   modal   MODAL_TOKEN_ID + MODAL_TOKEN_SECRET  free $30/month; one video split over up to 8 GPUs at once
-  kaggle  KAGGLE_USERNAME + KAGGLE_KEY         free 30 h/week; one GPU (skipped for re-voice/te_ref runs it can't do)
+  kaggle  KAGGLE_USERNAME + KAGGLE_KEY         free 30 h/week; one GPU
   runpod  RUNPOD_API_KEY                       paid per minute; one rented GPU, switched off as soon as it finishes
   vast    VAST_API_KEY                         paid per minute; cheapest rented GPU under $0.45/h, switched off after
 Env from the request: ONLY (re-voice these lines), TE_REF (another voice clip inside the project), TE_FLOW.
@@ -65,8 +65,6 @@ def modal_run(p):
 
 
 def kaggle_run(p):
-    if ONLY or TE_REF or TE_FLOW:
-        raise RuntimeError("Kaggle runner can't re-voice single lines or switch the voice clip")
     sh("pip", "install", "-q", "kaggle")
     env = dict(os.environ)
     if env["KAGGLE_KEY"].startswith("KGAT_"): env["KAGGLE_API_TOKEN"] = env["KAGGLE_KEY"]
