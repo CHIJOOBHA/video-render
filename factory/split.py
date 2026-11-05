@@ -55,6 +55,8 @@ def main():
         part = {"id": pid, "subject": subj, "chapter": ch, "part": p, "parts": len(groups),
                 "chapter_title": re.sub(r"^Chapter \d+:\s*", "", t_en), "chapter_title_te": re.sub(r"^అధ్యాయం \d+:\s*", "", t_te),
                 "sections": [en[i]["head"] for i in g], "next": nxt,
+                "prev": "; ".join(en[i]["head"] for i in groups[p - 2]) if p > 1 else None,
+                "prev_te": "; ".join(te[i]["head"] for i in groups[p - 2]) if p > 1 and all("head" in te[i] for i in groups[p - 2]) else None,
                 "en": f"# {t_en}\n\n" + "\n\n".join(en[i]["body"] for i in g),
                 "te": f"# {t_te}\n\n" + "\n\n".join(te[i]["body"] for i in g),
                 "words": sum(words[i] for i in g),

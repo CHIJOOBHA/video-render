@@ -7,19 +7,20 @@ must be in that beat or the one next to it). Unmatched points go back to the wri
   points(notes, lang)                  -> [{"n": 1, "point": "...", "keys": ["2026", "BRICS"]}, ...]
   cover(ledger, beats, lang)           -> {n: beat_id or None}   (beats = [(id, text), ...])
   missing(ledger, beats, lang)         -> (missing points, table rows)"""
-import json, re
+import json, re, unicodedata
 from llm import ask, LOG
 import lib
 
 def points(notes, lang):
-    k = lib.key("ledger|" + lang + "|" + notes)
+    k = lib.key("ledger2|" + lang + "|" + notes)
     hit = lib.get("ledger", k)
     if hit and isinstance(hit.get("points"), list) and hit["points"]: return hit["points"]
     ans = ask("You make the LEDGER of a piece of exam notes: number EVERY separate point a student must learn — each fact, "
               "date, number, name, definition, each bullet, each table row, each line of a timeline/tree block, each figure "
               "caption, each cross-reference ('see Chapter 10'), each exam-box line (past questions with their year, question "
               "number, statements and answer key), each trap/confusion-box item, each mnemonic. One point = one statement. "
-              "Skip only practice MCQs at the end of a chapter and pure formatting. Keep the notes' own wording. For each point "
+              "A box title or heading on its own ('Trap box: Don't confuse X vs Y', 'Asked in 2023') is NOT a point — the items under "
+              "it are. Skip only practice MCQs at the end of a chapter and pure formatting. Keep the notes' own wording. For each point "
               "give `keys`: the exact numbers, dates, names and terms in it that must be heard (as written in the notes) — never a "
               "section or table number (2.4, 3.13, Table 1.2): those are not spoken."
               f"\nNotes language: {'Telugu' if lang == 'te' else 'English'}.\n\nReturn ONLY JSON: "
@@ -32,7 +33,8 @@ def points(notes, lang):
 
 SKIP = set()     # section / table ids of the part (set by the writer): never required to be spoken
 
-def _norm(s):   # 'one hundred and forty' = 'one hundred forty' (num2words leaves out the 'and')
+def _norm(s):   # 'one hundred and forty' = 'one hundred forty' (num2words leaves out the 'and'); 'Évian' = 'Evian'
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)) if not re.search(r"[ఀ-౿]", s) else s
     return re.sub(r" and ", " ", " " + re.sub(r"[\s\-–,]+", " ", s.lower()).strip() + " ").strip()
 
 def _heard(key, text, lang):
@@ -107,24 +109,47 @@ def missing(ledger, beats, lang):
     LOG.append(f"ledger {lang}: {len(ledger)} points, {len(miss)} not taught")
     return miss, rows
 
-def added(notes, beats, lang):
+def added(notes, beats, lang, prev=None):
     """Nothing added, nothing changed (LOCKED rule), 5 Nov 2026: every claim the lesson makes must be in the notes, unchanged.
     The AI lists beats that add a fact / number / name / date / advice / conclusion the notes do not give, change a fact's
     meaning ('were in 2012' -> 'came after 2012'), read a box label or heading aloud, or repeat a point already taught."""
     if not beats: return []
     lines = "\n".join(f"[{i}] {t}" for i, (_, t) in enumerate(beats))
     ans = ask("You check a spoken lesson against its notes, strictly. List every beat that does any of these:\n"
-              "A) ADDED — states a fact, number, name, date, rule, advice or conclusion that the notes do not give "
-              "(explaining what a notes term means in plain words, linking two notes facts, greeting, or saying 'remember this' "
-              "is fine; giving exam advice or a judgement the notes do not give is ADDED);\n"
+              "A) ADDED — states a fact, number, name, date, rule, exam advice or conclusion ABOUT THE SUBJECT that the notes "
+              "do not give;\n"
               "B) CHANGED — says something that differs from the notes in meaning (a fact, number, date, order, who did what);\n"
-              "C) LABEL — reads a box title, a heading or a notes label aloud ('the trap box is titled…', 'Asked in 2023 "
-              "Paper-I Q4:') instead of teaching it in spoken sentences;\n"
-              "D) REPEAT — teaches again, in full, a point already taught in an earlier beat (one short reminder line of a key "
-              "point is fine).\nDo not flag correct teaching. Return ONLY JSON: "
+              "C) LABEL — reads a box title or heading aloud as a title ('the trap box is titled…', 'Asked in 2023 Paper-I Q4:') "
+              "instead of teaching it in spoken sentences;\n"
+              "D) REPEAT — teaches the same point IN FULL a third time or more.\n"
+              "These are FINE, never flag them: classroom remarks that state no subject fact ('many students find this hard', "
+              "'this is a big one', 'that is the whole trap', 'the chair was not just a title'); greetings; 'what is coming' and "
+              "'last time we saw' lines naming topics of the notes; a short 'so…' recap of what was just taught; the key line "
+              "said again; the end recap; explaining a notes term in plain words; linking two notes facts; a story or example "
+              "that only uses notes facts; saying where students slip when the notes have a trap/confusion box.\n"
+              "Return ONLY JSON: "
               '{"problems": [{"beat": 3, "kind": "ADDED|CHANGED|LABEL|REPEAT", "words": "…", "notes_say": "…"}]}'
-              f"\n\n# NOTES ({'Telugu' if lang == 'te' else 'English'})\n" + notes + "\n\n# BEATS\n" + lines,
+              f"\n\n# NOTES ({'Telugu' if lang == 'te' else 'English'})\n" + notes +
+              (f"\n\n# THE LAST PART COVERED (naming these topics in a 'last time' line is fine)\n{prev}" if prev else "") +
+              "\n\n# BEATS\n" + lines,
               f"added check {lang}", prefer=("anthropic", "gemini", "deepseek"))
+    # second, focused look (5 Nov 2026): one long check flags harmless teacher lines; each problem must be confirmed
+    ps = [p for p in (ans or {}).get("problems") or [] if isinstance(p, dict) and isinstance(p.get("beat"), int)
+          and 0 <= p["beat"] < len(beats) and p.get("kind") in ("ADDED", "CHANGED", "LABEL", "REPEAT")]
+    if ps:
+        c = ask("A checker says these lesson sentences break the rule 'nothing added, nothing changed, no titles read aloud, no "
+                "point taught in full three times'. For EACH, look at the notes and the whole lesson and answer true only if it "
+                "really does: it states a subject fact/number/name/date/advice the notes do not have, or says a notes fact "
+                "differently in meaning, or reads a title aloud, or is a third full teaching. A teacher remark with no subject "
+                "fact, a recap, a 'so…' summary, the key line said again, or a plain-words explanation is false."
+                '\n\nReturn ONLY JSON: {"real": {"0": true, "1": false, …}}\n\n# CLAIMS\n' +
+                "\n".join(f"[{i}] beat [{p['beat']}] {p['kind']}: \"{p.get('words', '')}\" (checker: notes say \"{p.get('notes_say', '')}\")"
+                          for i, p in enumerate(ps)) +
+                f"\n\n# NOTES ({'Telugu' if lang == 'te' else 'English'})\n" + notes + "\n\n# BEATS\n" + lines,
+                f"added confirm {lang}", prefer=("anthropic", "gemini", "deepseek"))
+        real = (c or {}).get("real") or {}
+        ps = [p for i, p in enumerate(ps) if real.get(str(i), True) is not False]
+    ans = {"problems": ps}
     out = []
     for p in (ans or {}).get("problems") or []:
         b = p.get("beat") if isinstance(p, dict) else None

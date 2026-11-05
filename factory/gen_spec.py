@@ -7,7 +7,8 @@ guides/explain-style.md) + menu.md. Models: llm.py (DeepSeek first for English, 
 Nothing here contains course content (the public repo stays content-free)."""
 import json, os, re, sys
 from llm import ask, LOG
-import lib, ledger
+import lib, ledger, unicodedata
+deacc = lambda t: "".join(c for c in unicodedata.normalize("NFKD", t) if not unicodedata.combining(c))   # Évian = Evian
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -132,7 +133,7 @@ def coverage(notes, scenes):
 def added_names(notes_all, scenes):
     """Nothing added (LOCKED rule): a rare name or term spoken or shown that the notes of this part never use."""
     from wordfreq import zipf_frequency
-    low = re.sub(r"[\s-]+", " ", notes_all.lower())
+    low = re.sub(r"[\s-]+", " ", deacc(notes_all).lower())
     txt = " ".join([b["en"] for sc in scenes for b in sc.get("beats", []) if isinstance(b, dict) and isinstance(b.get("en"), str)] +
                    [t for sc in scenes for v in sc.get("visuals") or [] for t in texts(v)] +
                    [b["note"].get("t", "") for sc in scenes for b in sc.get("beats", []) if isinstance(b, dict) and isinstance(b.get("note"), dict)])
@@ -415,6 +416,7 @@ def main():
     ids = sec_ids(part["en"], part.get("chapter"))
     ledger.SKIP = set(ids)            # section numbers are never spoken, so the ledger never asks for them
     if part.get("next"): part["next"] = screen_clean(str(part["next"]), ids)
+    if part.get("prev"): part["prev"] = screen_clean(str(part["prev"]), ids)
     all_scenes, lex, report, blocking, ledgers = [], {}, [], [], []
     for ci, piece in enumerate(pieces):
         first, last = ci == 0, ci == len(pieces) - 1
@@ -422,14 +424,14 @@ def main():
                  f"{'; '.join(part['sections'])}. You now write piece {ci + 1} of {len(pieces)} of this part's lesson. "
                  + (("Open like a class: greet with exactly \"Namaste!\" (never Hello), name the student's real problem with this topic, then promise "
                      "this part line by line with not one point missed" + (" (this is the chapter's first part)" if part["part"] == 1 else
-                     "; say in one line what the last part covered") + ". The chapter title card is already shown. ") if first else
+                     f"; say in one line what the last part covered — only these topic names, no facts: {part.get('prev') or 'the earlier part'}") + ". The chapter title card is already shown. ") if first else
                     "Continue naturally from what was just said (do not greet or restart). ")
                  + ((f"End this piece with a short recap of the whole part, then say the next part covers: {part['next']}."
                      if part.get("next") else "End with a recap of the whole chapter's key lines.") if last else
                     "Do not recap yet — the lesson continues in the next piece."))
         prev = [b["en"] for sc in all_scenes[-2:] for b in sc["beats"]][-4:]
         # the same notes text, in the same role (opening / middle / closing of a part), is reused from the library
-        lk = lib.key(piece + ("|first|" + "; ".join(part["sections"]) if first else "") + ("|last|" + str(part.get("next")) if last else ""))
+        lk = lib.key(piece + ("|first|" + "; ".join(part["sections"]) + "|" + str(part.get("prev")) if first else "") + ("|last|" + str(part.get("next")) if last else ""))
         hit = lib.get("en", lk)
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
             # a stored piece must still pass today's checks (they get stricter); otherwise it is written again
@@ -461,7 +463,32 @@ def main():
                 "more words than the notes, never fewer). Leave out only practice MCQs.\n" + piece + "\n\n# ANSWER\n" + SHAPE)
         out, errs, mn, mu, miss, best, adds = None, [], [], [], [], None, []
         led = ledger.points(piece, "en")
-        for rnd in range(5):
+        def evaluate(out):
+            errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
+            said_ids = sorted({x for sc in out["scenes"] for b in sc.get("beats") or [] if isinstance(b, dict) and isinstance(b.get("en"), str)
+                               for x in spoken_ids(b["en"], ids)})
+            # picture-voice timing (5 Nov 2026): nothing may appear before the beat in which its words are said
+            try:
+                import copy, sync
+                tmp = build(part, copy.deepcopy(out["scenes"]))[0]
+                for sc2 in tmp["scenes"]: sync.sync_scene(sc2); sync.no_empty_picture(sc2)
+                errs += [f"timing: {x}" for x in sync.timing_report(tmp)]
+            except Exception as e: LOG.append(f"timing check skipped: {e}")
+            if said_ids: errs.append(f"section/table numbers spoken {said_ids} — never say a section or table number; say 'this table', "
+                                     "'the next section' or name its topic instead")
+            add = added_names(part["en"] + " " + part.get("chapter_title", "") + " " + str(part.get("prev") or ""), out["scenes"])
+            if add: errs.append(f"names/terms not in the notes {add} — nothing may be added; use only the notes' own names and terms")
+            mn, mu, nw, sw = coverage(piece, out["scenes"])
+            LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
+                       f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
+            hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
+            beats_all = [(f"{sc['id']}#{i}", b["en"]) for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
+                         if isinstance(b, dict) and isinstance(b.get("en"), str)]
+            miss, rows = ledger.missing(led, beats_all, "en") if led else ([], [])
+            adds = ledger.added(piece, beats_all, "en", prev=part.get("prev") if first else None)
+            bad = len(miss) * 3 + len(adds) * 3 + len(mn) * 3 + len(mu) * 2 + len(hard) * 2 + (5 if sw < 0.9 * nw else 0)
+            return bad, errs, mn, mu, miss, rows, nw, sw, adds, hard
+        for rnd in range(4):
             prompt = base if out is None else (base + "\n\n# YOUR LAST ANSWER\n" + json.dumps(out) + "\n\n# CHECKER FOUND\n" +
                      "\n".join(errs[:60]) +
                      (f"\nNever spoken (teach each where the notes have it): {mn}" if mn else "") +
@@ -483,33 +510,45 @@ def main():
                         if isinstance(b, dict) and isinstance(b.get("en"), str): b["en"] = spoken_fix(b["en"])
             elif out is None: continue
             for k, sc in enumerate(out["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
-            errs = [x for sc in out["scenes"] for x in scene_errs(sc)]
-            # picture-voice timing (5 Nov 2026): nothing may appear before the beat in which its words are said
-            try:
-                import copy, sync
-                tmp = build(part, copy.deepcopy(out["scenes"]))[0]; rep = []
-                for sc2 in tmp["scenes"]: sync.sync_scene(sc2); sync.no_empty_picture(sc2)
-                rep = sync.timing_report(tmp)
-                errs += [f"timing: {x}" for x in rep]
-            except Exception as e: LOG.append(f"timing check skipped: {e}")
-            if said_ids: errs.append(f"section/table numbers spoken {said_ids} — never say a section or table number; say 'this table', "
-                                     "'the next section' or name its topic instead")
-            add = added_names(part["en"] + " " + part.get("chapter_title", ""), out["scenes"])
-            if add: errs.append(f"names/terms not in the notes {add} — nothing may be added; use only the notes' own names and terms")
-            mn, mu, nw, sw = coverage(piece, out["scenes"])
-            LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
-                       f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
-            hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
-            beats_all = [(f"{sc['id']}#{i}", b["en"]) for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
-                         if isinstance(b, dict) and isinstance(b.get("en"), str)]
-            miss, rows = ledger.missing(led, beats_all, "en") if led else ([], [])
-            adds = ledger.added(piece, beats_all, "en")
+            bad, errs, mn, mu, miss, rows, nw, sw, adds, hard = evaluate(out)
             # 5 Nov 2026: a rewrite can fix some points and drop others — keep the best answer seen, not the last one
-            bad = len(miss) * 3 + len(adds) * 3 + len(mn) * 3 + len(mu) * 2 + len(hard) * 2 + (5 if sw < 0.9 * nw else 0)
             if best is None or bad < best[0]: best = (bad, json.loads(json.dumps(out)), errs, mn, mu, miss, rows, nw, sw, adds)
             if not mn and not mu and not miss and not adds and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
+            _, out, errs, mn, mu, miss, rows, nw, sw, adds = json.loads(json.dumps(best))   # the next rewrite starts from the best
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
         if best: _, out, errs, mn, mu, miss, rows, nw, sw, adds = best
+        # targeted fix (5 Nov 2026): whole rewrites trade one slip for another, so the last few problems are fixed beat by
+        # beat — only the named beats are rewritten, everything else (and every picture) stays as it is
+        for prnd in range(3):
+            hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
+            if not (miss or adds or mn or mu or [e for e in hard if not e.startswith("timing:")]): break
+            idx = [{"id": f"{sc['id']}#{i}", "en": b["en"]} for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
+                   if isinstance(b, dict) and isinstance(b.get("en"), str)]
+            fx = ask("Fix this spoken lesson by rewriting ONLY the beats that need it. Problems:\n" +
+                     "\n".join(f"- beat {a['beat']} {a['kind']}: \"{a['words']}\" (notes: {a['notes_say']}) — remove what the notes do "
+                                "not say / say it exactly as the notes say / teach the label as a spoken sentence / drop the repeat" for a in adds) +
+                     "".join(f"\n- NOT TAUGHT: {p['point']} — add it, completely and in the notes' wording, to the beat where it belongs in "
+                             "the notes' order" for p in miss) +
+                     (f"\n- names/terms never spoken (teach each where the notes have it): {mn}" if mn else "") +
+                     (f"\n- numbers never spoken as words: {mu}" if mu else "") +
+                     "".join(f"\n- {e}" for e in hard if not e.startswith("timing:")) +
+                     "\nEach beat stays 1-3 short spoken sentences (under 28 words each, at most 55 words), numbers as words, no "
+                     "digits, same teacher style; never add a fact the notes do not give. "
+                     'Return ONLY JSON: {"<beat id>": "new beat text", …}\n\n# NOTES\n' + piece + "\n\n# BEATS\n" + json.dumps(idx),
+                     f"piece {ci + 1} beat fix {prnd}", prefer=("anthropic", "deepseek", "gemini"))
+            if not isinstance(fx, dict) or not fx: break
+            trial = json.loads(json.dumps(out)); n = 0
+            for bid, t in fx.items():
+                sid, _, k = str(bid).partition("#")
+                for sc in trial["scenes"]:
+                    if sc["id"] == sid and k.isdigit() and int(k) < len(sc.get("beats") or []) and isinstance(t, str) and t.strip() \
+                            and not re.search(r"\d", t) and len(t.split()) <= 60:
+                        sc["beats"][int(k)]["en"] = spoken_fix(t.strip()); n += 1
+            if not n: break
+            r = evaluate(trial)
+            LOG.append(f"piece {ci + 1} beat fix {prnd}: {n} beats rewritten, score {best[0] if best else '?'} -> {r[0]}")
+            if best is None or r[0] < best[0]:
+                best = (r[0], trial, *r[1:-1]); _, out, errs, mn, mu, miss, rows, nw, sw, adds = best
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
         for sc in out["scenes"]:
             ok = [v for j, v in enumerate(sc.get("visuals") or []) if not any(e.startswith(f"{sc['id']} visual {j}") for e in errs)]

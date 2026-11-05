@@ -112,7 +112,7 @@ def main():
         if not led: break
         beats = [(f"{sc['id']}#{k}", s["text"]["te"]) for sc in scenes for k, s in enumerate(sc["sentences"])]
         miss, rows = ledger.missing(led, beats, "te")
-        adds = ledger.added(part["te"], beats, "te")
+        adds = ledger.added(part["te"], beats, "te", prev=part.get("prev_te") or part.get("prev"))
         if (not miss and not adds) or rnd == 2: break
         idx = [{"id": f"{sc['id']}#{k}", "en": s["text"]["en"], "te": s["text"]["te"]} for sc in scenes for k, s in enumerate(sc["sentences"])]
         out = ask("The Telugu lesson below misses these points of the TELUGU NOTES (or teaches them wrongly):\n" +
