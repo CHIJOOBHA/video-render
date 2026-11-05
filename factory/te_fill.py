@@ -29,6 +29,9 @@ def main():
     spec_f, part_f, studio, rep = sys.argv[1:5]
     spec, part = json.load(open(spec_f, encoding="utf-8")), json.load(open(part_f, encoding="utf-8"))
     guide = open(os.path.join(studio, "guides/teacher-script.md"), encoding="utf-8").read()
+    sp = os.path.join(studio, "guides/script-sample-te.md")
+    if os.path.exists(sp):     # CHIJOBHA's own model script (5 Nov 2026): copy its style, never its facts
+        guide += "\n\n# MODEL SCRIPT — write Telugu exactly in THIS style (style only, never its facts)\n" + open(sp, encoding="utf-8").read()
     locked = open(os.path.join(studio, "CLAUDE.md"), encoding="utf-8").read().split("## Common rules")[0]
     scenes = spec["scenes"]
     # Telugu of a scene whose English is identical to one already done (any subject) is reused from the library
@@ -57,7 +60,11 @@ def main():
                 "made; the Telugu video uses the SAME scenes, beats and pictures, so write one Telugu beat for every English beat "
                 "(same point, same order) and a Telugu version of every on-screen text.\n\n# RULES\n" + locked + "\n\n" + guide +
                 "\n\nTelugu facts, names and spellings come from the TELUGU NOTES below (where the English and Telugu notes differ, "
-                "follow the Telugu notes). Spoken Telugu: natural classroom Telugu, respectful forms for revered people, numbers and "
+                "follow the Telugu notes). Every point of the Telugu notes that the English beat teaches must be in its Telugu beat — "
+                "completely, with the Telugu notes' own wording, numbers and names; never drop a point to shorten. Write it the way "
+                "the MODEL SCRIPT talks: a Telugu teacher in class, Telugu mixed with the English words students use, greeting "
+                "'నమస్కారం!' where the English greets, 'కామన్ మిస్టేక్ అలర్ట్! … ఎగ్జాంపుల్ 1 (కరెక్ట్) … ఎగ్జాంపుల్ 2 (రాంగ్) … "
+                "ఈ తప్పు చేయకండి.' where the English has a Common Mistake Alert. Spoken Telugu: respectful forms for revered people, numbers and "
                 "years as spoken Telugu words (రెండు వేల ఇరవై ఐదు), no digits. On-screen text: short Telugu, and every number written in DIGITS exactly as in the English (1 March 2014 -> 1 మార్చి 2014).\n\n"
                 "# TELUGU NOTES\n" + part["te"] + "\n\n# JUST SAID\n" + json.dumps(prev[-3:], ensure_ascii=False) +
                 "\n\n# ENGLISH SCENES TO MATCH\n" + json.dumps(ask_scenes, ensure_ascii=False) +
@@ -95,12 +102,36 @@ def main():
             if all(s["text"]["te"] for s in sc["sentences"]):
                 lib.put("te", keys[sc["id"]], {"beats": [s["text"]["te"] for s in sc["sentences"]],
                                                "screen": {p["en"]: p["te"] for p in strings(sc["data"], []) if p["te"]}})
+    # ledger (5 Nov 2026): every point of the TELUGU notes of this part must be taught by the Telugu beats
+    import ledger
+    led = ledger.points(part["te"], "te") if not bad_total else []
+    miss, rows = [], []
+    for rnd in range(3):
+        if not led: break
+        beats = [(f"{sc['id']}#{k}", s["text"]["te"]) for sc in scenes for k, s in enumerate(sc["sentences"])]
+        miss, rows = ledger.missing(led, beats, "te")
+        if not miss or rnd == 2: break
+        idx = [{"id": f"{sc['id']}#{k}", "en": s["text"]["en"], "te": s["text"]["te"]} for sc in scenes for k, s in enumerate(sc["sentences"])]
+        out = ask("The Telugu lesson below misses these points of the TELUGU NOTES (or teaches them wrongly):\n" +
+                  "\n".join(f"- {p['point']}" for p in miss) +
+                  "\n\nAdd each one, completely and exactly as the Telugu notes say, into the Telugu beat where its English beat "
+                  "teaches it (rewrite only those beats; keep everything else; same style; no digits; numbers as Telugu words). "
+                  'Return ONLY JSON: {"<beat id>": "new Telugu beat", …}\n\n# RULES\n' + guide + "\n\n# TELUGU NOTES\n" +
+                  part["te"] + "\n\n# BEATS\n" + json.dumps(idx, ensure_ascii=False), f"te ledger fix {rnd}", prefer=("gemini", "anthropic"))
+        for bid, te in (out or {}).items():
+            sid, _, k = str(bid).partition("#")
+            for sc in scenes:
+                if sc["id"] == sid and k.isdigit() and int(k) < len(sc["sentences"]) and isinstance(te, str) and not beat_errs(te):
+                    sc["sentences"][int(k)]["text"]["te"] = te.strip()
+    if led and miss: bad_total += [f"ledger: {len(miss)} of {len(led)} Telugu notes points not taught — " + "; ".join(p["point"][:70] for p in miss[:6])]
+    if not led and not bad_total: bad_total.append("ledger: no Telugu ledger could be made")
     if not bad_total: spec.pop("te_pending", None)
     from gen_spec import size_spec
     size_spec(spec)                      # Telugu words are longer: boxes and pages re-fitted
     json.dump(spec, open(spec_f, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     with open(rep, "a", encoding="utf-8") as f:
-        f.write(f"\n# Telugu — {'READY' if not bad_total else 'BLOCKED'}\nbeats without Telugu: {bad_total or 'none'}\n\n## Log\n" +
+        f.write(f"\n# Telugu — {'READY' if not bad_total else 'BLOCKED'}\nproblems: {bad_total or 'none'}\n\n"
+                f"## Telugu ledger + coverage ({len(led)} points)\n| # | point | beat |\n|---|---|---|\n" + "\n".join(rows) + "\n\n## Log\n" +
                 "\n".join(f"- {l}" for l in LOG) + "\n")
     print("TE READY" if not bad_total else f"TE BLOCKED {len(bad_total)} beats")
     sys.exit(0 if not bad_total else 3)

@@ -7,7 +7,7 @@ guides/explain-style.md) + menu.md. Models: llm.py (DeepSeek first for English, 
 Nothing here contains course content (the public repo stays content-free)."""
 import json, os, re, sys
 from llm import ask, LOG
-import lib
+import lib, ledger
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -387,18 +387,23 @@ def main():
     part = json.load(open(part, encoding="utf-8"))
     rd = lambda p: open(os.path.join(studio, p), encoding="utf-8").read()
     locked = rd("CLAUDE.md").split("## Common rules")[0]
+    sample = rd("guides/script-sample-te.md") if os.path.exists(os.path.join(studio, "guides/script-sample-te.md")) else ""
     rules = (locked + "\n\n" + rd("guides/teacher-script.md") + "\n\n" + rd("guides/explain-style.md") + "\n\n" +
+             ("# MODEL SCRIPT (CHIJOBHA wrote it; it is Telugu — write the SAME style in English; copy the style, NEVER its facts)\n" +
+              sample + "\n\n" if sample else "") +
              open(os.path.join(HERE, "menu.md"), encoding="utf-8").read())
     rules = rules.replace('All text is a pair `["English", "Telugu"]`.', "All text is plain English (Telugu is added later).")
     pieces = chunks(part["en"])
     ids = sec_ids(part["en"])
     if part.get("next"): part["next"] = screen_clean(str(part["next"]), ids)
-    all_scenes, lex, report, blocking = [], {}, [], []
+    all_scenes, lex, report, blocking, ledgers = [], {}, [], [], []
     for ci, piece in enumerate(pieces):
         first, last = ci == 0, ci == len(pieces) - 1
         where = (f"Chapter {part['chapter']} ({part['chapter_title']}), Part {part['part']} of {part['parts']}; it covers: "
                  f"{'; '.join(part['sections'])}. You now write piece {ci + 1} of {len(pieces)} of this part's lesson. "
-                 + ("Start with the hook and what this part covers (the chapter title card is already shown). " if first else
+                 + (("Open like a class: greet the student (\"Namaste!\"), name the student's real problem with this topic, then promise "
+                     "this part line by line with not one point missed" + (" (this is the chapter's first part)" if part["part"] == 1 else
+                     "; say in one line what the last part covered") + ". The chapter title card is already shown. ") if first else
                     "Continue naturally from what was just said (do not greet or restart). ")
                  + ((f"End this piece with a short recap of the whole part, then say the next part covers: {part['next']}."
                      if part.get("next") else "End with a recap of the whole chapter's key lines.") if last else
@@ -418,6 +423,11 @@ def main():
             except Exception: h_time = []
             h_bad = h_time or h_mn or h_mu or added_names(part["en"] + " " + part.get("chapter_title", ""), hit["scenes"]) or \
                     [x for sc in hit["scenes"] for x in scene_errs(sc) if " visual " not in x and "sentence over" not in x]
+            if not h_bad:     # every notes point must be taught by the stored piece too
+                hb = [(f"{sc['id']}#{i}", b["en"]) for sc in hit["scenes"] for i, b in enumerate(sc.get("beats") or []) if isinstance(b, dict)]
+                lp = ledger.points(piece, "en"); hm, hr = ledger.missing(lp, hb, "en") if lp else ([1], [])
+                if hm: h_bad = True
+                else: ledgers.append((ci + 1, lp, hr))
             if h_bad: LOG.append(f"piece {ci + 1}: library piece {lk} fails today's checks — written again"); hit = None
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
             for k, sc in enumerate(hit["scenes"]): sc["id"] = f"p{ci + 1}s{k + 1}"
@@ -430,12 +440,15 @@ def main():
                 "\n\n# TEACH EVERY POINT OF THESE NOTES — every sentence, bullet, table row, name, number, date, section, term, "
                 "exam box and source note — in order, explained like a teacher (at least one beat per notes point; usually "
                 "more words than the notes, never fewer). Leave out only practice MCQs.\n" + piece + "\n\n# ANSWER\n" + SHAPE)
-        out, errs, mn, mu = None, [], [], []
-        for rnd in range(4):
+        out, errs, mn, mu, miss = None, [], [], [], []
+        led = ledger.points(piece, "en")
+        for rnd in range(5):
             prompt = base if out is None else (base + "\n\n# YOUR LAST ANSWER\n" + json.dumps(out) + "\n\n# CHECKER FOUND\n" +
                      "\n".join(errs[:60]) +
                      (f"\nNever spoken (teach each where the notes have it): {mn}" if mn else "") +
                      (f"\nNumbers never spoken as words: {mu}" if mu else "") +
+                     ("\nPOINTS OF THE NOTES NOT TAUGHT (or taught wrongly) — teach every one, completely and exactly, in the notes' "
+                      "order, at its right place:\n" + "\n".join(f"- {p['point']}" for p in miss) if miss else "") +
                      (f"\nToo short: {sw} spoken words for {nw} words of notes — explain every point fully." if sw < 0.9 * nw else "") +
                      "\nFix all of it, keep everything else, return the WHOLE answer again.")
             new = ask(prompt, f"piece {ci + 1}/{len(pieces)} round {rnd}", prefer=("anthropic", "deepseek", "gemini"))
@@ -465,7 +478,10 @@ def main():
             LOG.append(f"piece {ci + 1}: {len(out['scenes'])} scenes, {sum(len(s.get('beats') or []) for s in out['scenes'])} beats, "
                        f"{sw} spoken words / {nw} notes words, rule errors {len(errs)}, missing names {mn}, numbers {mu}")
             hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
-            if not mn and not mu and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
+            beats_all = [(f"{sc['id']}#{i}", b["en"]) for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
+                         if isinstance(b, dict) and isinstance(b.get("en"), str)]
+            miss, rows = ledger.missing(led, beats_all, "en") if led else ([], [])
+            if not mn and not mu and not miss and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
         for sc in out["scenes"]:
@@ -479,7 +495,10 @@ def main():
         lex.update({k.lower(): v for k, v in (out.get("lexicon") or {}).items()
                     if isinstance(v, str) and re.fullmatch(r"[ఀ-౿‌\s'-]+", v.strip())})
         hard = [e for e in errs if (" visual " not in e or e.startswith("timing:")) and "sentence over" not in e]
-        if not mn and not mu and not hard and sw >= 0.7 * nw:
+        ledgers.append((ci + 1, led, rows if led else []))
+        if not led: blocking.append(f"piece {ci + 1}: no ledger could be made")
+        if miss: blocking.append(f"piece {ci + 1}: {len(miss)} of {len(led)} notes points not taught: " + "; ".join(p["point"][:80] for p in miss[:8]))
+        if not mn and not mu and not miss and not hard and sw >= 0.7 * nw:
             lib.put("en", lk, {"scenes": out["scenes"], "lexicon": {k.lower(): v for k, v in (out.get("lexicon") or {}).items() if isinstance(v, str)}})
         report.append(f"- piece {ci + 1}: {sw} spoken / {nw} notes words · missing names {mn or 'none'} · numbers not spoken {mu or 'none'} · rule problems {len(hard)}")
         if mn: blocking.append(f"piece {ci + 1}: names/terms never spoken {mn}")
@@ -493,6 +512,8 @@ def main():
     with open(out_rep, "w", encoding="utf-8") as f:
         f.write(f"# {part['id']} — {'READY' if ok else 'BLOCKED'} (English)\n\nscenes {len(spec['scenes'])}, sentences {nsent}\n\n")
         f.write("## Coverage by piece\n" + "\n".join(report) + "\n\n## Blocking\n" + ("\n".join(f"- {b}" for b in blocking) or "none") +
+                "\n\n## Ledger + coverage (every notes point -> the beat that teaches it)\n" +
+                "\n".join(f"\n### piece {n} — {len(l)} points\n| # | point | beat |\n|---|---|---|\n" + "\n".join(r) for n, l, r in ledgers) +
                 "\n\n## Log\n" + "\n".join(f"- {l}" for l in LOG) + "\n")
     print("READY" if ok else "BLOCKED", part["id"], f"scenes={len(spec['scenes'])} sentences={nsent} blocking={len(blocking)}")
     sys.exit(0 if ok else 3)

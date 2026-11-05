@@ -14,7 +14,7 @@ def key(text):
 def get(kind, k):
     if os.environ.get("NO_LIBRARY"): return None
     f = tempfile.mktemp()
-    r = subprocess.run(["python3", R2, "get", f"jobs/factory/library/v2/{kind}/{k}.json", f], capture_output=True)
+    r = subprocess.run(["python3", R2, "get", f"jobs/factory/library/v3/{kind}/{k}.json", f], capture_output=True)
     if r.returncode or not os.path.exists(f): return None
     try: return json.load(open(f, encoding="utf-8"))
     except Exception: return None
@@ -24,5 +24,5 @@ def get(kind, k):
 def put(kind, k, obj):
     f = tempfile.mktemp(suffix=".json")
     json.dump(obj, open(f, "w", encoding="utf-8"), ensure_ascii=False)
-    subprocess.run(["python3", R2, "put", f, f"jobs/factory/library/v2/{kind}/{k}.json"], capture_output=True)
+    subprocess.run(["python3", R2, "put", f, f"jobs/factory/library/v3/{kind}/{k}.json"], capture_output=True)
     os.remove(f)
