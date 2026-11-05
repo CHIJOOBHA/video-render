@@ -358,7 +358,7 @@ jobs:
           echo "::notice title=layout::$(tail -1 lay.txt)"; echo "::notice title=timeline::$(tail -1 tl.txt) ($(grep -c . tl.txt) lines)"; echo "::notice title=sentences::$(tail -1 sen.txt)"
           cat lay.txt tl.txt sen.txt $( [ -f sync.txt ] && echo sync.txt ) > qa-report.txt
           python3 $GITHUB_WORKSPACE/r2.py put qa-report.txt "work/$ID/${{ github.run_id }}/qa/report.txt"
-          for f in $RUNNER_TEMP/sen/sheet-*.png $RUNNER_TEMP/sen/text-check.json; do python3 $GITHUB_WORKSPACE/r2.py put "$f" "work/$ID/${{ github.run_id }}/qa/$(basename $f)"; done
+          for f in $RUNNER_TEMP/sen/sheet-*.png $RUNNER_TEMP/sen/text-check.json; do [ -f "$f" ] || continue; python3 $GITHUB_WORKSPACE/r2.py put "$f" "work/$ID/${{ github.run_id }}/qa/$(basename $f)"; done
           echo "{\"layout\":$a,\"timeline\":$b,\"sentences\":$c,\"timing\":$z}" > qa.json; python3 $GITHUB_WORKSPACE/r2.py put qa.json "work/$ID/${{ github.run_id }}/qa/result.json"
           [ $a = 0 ] && [ $b = 0 ] && [ $c = 0 ] && [ $z = 0 ]
 
