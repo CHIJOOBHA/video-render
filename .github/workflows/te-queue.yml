@@ -1,5 +1,5 @@
-# Telugu queue (4 Nov 2026): the factory renders English at once and queues Telugu here. One at a time (the ONE free
-# Kaggle GPU voices Telugu, and free Gemini writes it): when the previous Telugu render has finished, take the next part,
+# Telugu queue (4 Nov 2026): the factory renders English at once and queues Telugu here. One at a time with only the
+# free Kaggle GPU; up to 3 at once when Modal is set up (5 Nov 2026; free Gemini writes the Telugu): when the previous Telugu render has finished, take the next part,
 # let Gemini write its Telugu into the same scenes (factory/te_fill.py), then start its render. Every 20 minutes.
 name: te-queue
 on:
@@ -40,18 +40,27 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
         run: |
           R2="python3 r2.py"
           [ -f queue/paused ] && { echo "Telugu renders paused: $(cat queue/paused)"; exit 0; }
           NEXT=$($R2 list work/factory/te-queue/ | awk '{print $3}' | sort | head -1)
           [ -n "$NEXT" ] || { echo "Telugu queue empty"; exit 0; }
-          if $R2 get jobs/factory/te-active.json act.json 2>/dev/null; then
-            ID=$(jq -r .video_id act.json); AT=$(jq -r .at act.json)
-            ST=$($R2 get "jobs/$ID.json" st.json 2>/dev/null && jq -r .state st.json || echo none)
-            AGE=$(( $(date +%s) - $(date -d "$AT" +%s) ))
-            if [ "$ST" != "done" ] && [ "$ST" != "failed" ] && [ $AGE -lt 21600 ]; then echo "busy: $ID ($ST, ${AGE}s)"; exit 0; fi
-            echo "previous: $ID $ST"
-          fi
+          # 5 Nov 2026: several Telugu renders at once when Modal (many GPUs at once) is set up; one at a time otherwise.
+          # queue/te-max overrides the number.
+          MAX=$(cat queue/te-max 2>/dev/null || { [ -n "$MODAL_TOKEN_ID" ] && echo 3 || echo 1; })
+          ACTIVE=0
+          busy() {   # $1 = key of an "active" note; counts it while its render runs, removes it once finished
+            $R2 get "$1" act.json 2>/dev/null || return 0
+            local ID=$(jq -r .video_id act.json) AT=$(jq -r .at act.json)
+            local ST=$($R2 get "jobs/$ID.json" st.json 2>/dev/null && jq -r .state st.json || echo none)
+            local AGE=$(( $(date +%s) - $(date -d "$AT" +%s) ))
+            if [ "$ST" != "done" ] && [ "$ST" != "failed" ] && [ $AGE -lt 21600 ]; then ACTIVE=$(( ACTIVE + 1 )); echo "busy: $ID ($ST, ${AGE}s)"
+            else echo "previous: $ID $ST"; case "$1" in work/*) $R2 rm "$1" || true;; esac; fi
+          }
+          busy jobs/factory/te-active.json      # the older single note (read only; never removed)
+          for A in $($R2 list work/factory/te-active/ 2>/dev/null | awk '{print $3}'); do busy "$A"; done
+          [ $ACTIVE -lt $MAX ] || { echo "Telugu renders running: $ACTIVE (max $MAX)"; exit 0; }
           $R2 get "$NEXT" req.json && jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' req.json > rq.json && mv rq.json req.json
           ID=$(jq -r .video_id req.json); PID=$(jq -r .part_id req.json); SUBJ=$(jq -r .subject req.json); CH=$(jq -r .chapter req.json)
           # Telugu lines into the English spec (Gemini); if Gemini's free quota is used up, try again next round
@@ -70,5 +79,5 @@ jobs:
           echo '{"state":"queued"}' > st.json; $R2 put st.json "jobs/$ID.json"
           gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c 'del(.part_id, .subject, .chapter)' req.json)"
           jq -n --arg id "$ID" --arg at "$(date -u +%FT%TZ)" '{video_id: $id, at: $at}' > act.json
-          $R2 put act.json jobs/factory/te-active.json && $R2 rm "$NEXT"
+          $R2 put act.json "work/factory/te-active/$ID.json" && $R2 rm "$NEXT"
           echo "started Telugu render $ID; left in queue: $($R2 list work/factory/te-queue/ | wc -l)"

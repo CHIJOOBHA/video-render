@@ -103,11 +103,12 @@ jobs:
             echo "shards=[]" >> "$GITHUB_OUTPUT"
           fi
 
-  tegpu:     # Telugu voice on a free Kaggle GPU first (~2-5 min); if anything fails, tevoice (16 CPU machines) takes over
+  tegpu:     # Telugu voice on a GPU first: Modal, Kaggle, RunPod, Vast.ai in turn (gpu/voice.py; order in queue/gpu-order).
+             # Only platforms whose secrets are saved are tried. If none finishes, tevoice (16 CPU machines) takes over.
     needs: prep
     if: ${{ needs.prep.outputs.shards != '[]' && needs.prep.outputs.shards != '' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 100
     outputs:
       ok: ${{ steps.k.outputs.ok }}
     steps:
@@ -122,18 +123,20 @@ jobs:
         env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          VAST_API_KEY: ${{ secrets.VAST_API_KEY }}
         run: |
           echo "ok=false" >> "$GITHUB_OUTPUT"
-          # "no_gpu": true — skip Kaggle. 31 Oct 2026: Kaggle GPU voice failed the final check (sentence 01.1.6 scored 0.22 vs 0.95 on CPU)
+          # "no_gpu": true — skip all GPUs. 31 Oct 2026: Kaggle GPU voice failed the final check (sentence 01.1.6 scored 0.22 vs 0.95 on CPU)
           [ "$(jq -r '.no_gpu // false' queue/request.json)" != "true" ] || { echo "no_gpu requested - using CPU machines"; exit 0; }
-          [ -n "$KAGGLE_USERNAME" ] && [ -n "$KAGGLE_KEY" ] || { echo "no Kaggle secrets - using CPU machines"; exit 0; }
-          case "$KAGGLE_KEY" in KGAT_*) export KAGGLE_API_TOKEN="$KAGGLE_KEY";; esac
           R=$PWD/queue/request.json; ID=$(jq -r .video_id $R); RUN=${{ github.run_id }}
           python3 r2.py get "$(jq -r .src $R)" src.tgz && mkdir w && tar -xzf src.tgz -C w
           python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
-          pip install -q kaggle
-          python3 kaggle_voice.py w sentences.json te-gpu.tgz "te-voice-$ID"
-          python3 r2.py put te-gpu.tgz "work/$ID/$RUN/te/te-gpu.tgz"
+          export ONLY="$(jq -r '.redo // [] | join(",")' $R)" TE_REF="$(jq -r '.te_ref // empty' $R)" TE_FLOW="$(jq -r '.te_flow // empty' $R)"
+          python3 gpu/voice.py w sentences.json gpu-out "$ID" "$RUN"
+          for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/$ID/$RUN/te/$(basename "$f")"; done
           echo "ok=true" >> "$GITHUB_OUTPUT"
 
   tevoice:   # Telugu in CHIJOBHA's copied voice, split over many machines (fallback when the Kaggle GPU is unavailable)

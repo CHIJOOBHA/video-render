@@ -2,7 +2,8 @@
 """Private-storage helper for the public render runner. No keys here: each call proves 'I am a GitHub Actions run of
 CHIJOOBHA/video-render on main' with GitHub's OIDC token; the storage function only allows the render folders.
   python3 r2.py get <key> <file>     python3 r2.py put <file> <key>
-  python3 r2.py list <prefix>        python3 r2.py rm <key>"""
+  python3 r2.py list <prefix>        python3 r2.py rm <key>
+  python3 r2.py url GET|PUT <key>   (a 2-hour link to one file, for rented GPU machines)"""
 import json, os, subprocess, sys, urllib.request, urllib.parse
 
 FN = "https://xijkeywydoesxvqnacnc.supabase.co/functions/v1/video-admin"
@@ -36,6 +37,8 @@ if cmd == "get":
     curl("-o", sys.argv[3], call("presign", method="GET", key=sys.argv[2], expires=7200)["url"])
 elif cmd == "put":
     curl("-o", "/dev/null", "-X", "PUT", "--upload-file", sys.argv[2], call("presign", method="PUT", key=sys.argv[3], expires=7200)["url"])
+elif cmd == "url":       # python3 r2.py url GET|PUT <key> — a 2-hour link to ONE file (for rented GPU machines; no keys given out)
+    print(call("presign", method=sys.argv[2], key=sys.argv[3], expires=7200)["url"])
 elif cmd == "list":
     for it in call("list", prefix=sys.argv[2])["items"]:
         print(it["at"][:10], it["size"], it["key"])
