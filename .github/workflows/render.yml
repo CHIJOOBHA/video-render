@@ -74,7 +74,7 @@ jobs:
           if [ -n "$P" ]; then
             python3 $P/tools/te_timeline.py sentences sentences.json
             if [ "$(jq -r '.redo // [] | length' $R)" != "0" ]; then
-              jq --argjson keep "$(jq -c '.redo' $R)" 'with_entries(select(.key as $k | $keep | index($k)))' sentences.json > s2.json && mv s2.json sentences.json
+              jq --argjson keep "$(jq -c '.redo' $R)" 'with_entries(select(.key as $k | ($keep | index($k)) or ($keep | index($k + "_0"))))' sentences.json > s2.json && mv s2.json sentences.json   # redo ids may carry voice_te's "_0" line suffix
               echo "re-voicing $(jq length sentences.json) sentences"
             fi
             python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
