@@ -372,7 +372,7 @@ jobs:
     needs: [plan, chunk, audio, qa]
     if: ${{ !cancelled() && needs.chunk.result == 'success' && needs.audio.result != 'failure' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300   # 5 Nov 2026: voice check of a 71-min video needs >2 h on CPU
     steps:
       - uses: actions/checkout@v4
       - name: Request (factory input)
