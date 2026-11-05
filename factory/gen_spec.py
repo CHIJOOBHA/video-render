@@ -175,6 +175,7 @@ def speak_digits(t):
     4.2 -> four point two, 2026 -> twenty twenty-six, 45% -> forty-five per cent, ₹500 -> five hundred rupees."""
     from num2words import num2words
     t = letters_digits(t)
+    t = re.sub(r"([A-Za-z])(\d)", r"\1 \2", t)            # Param2 -> Param two (was 'Paramtwo')
     t = re.sub(r"(\d),(?=\d{2,3}\b)", r"\1", t)
     t = re.sub(r"₹\s?([\d.]+)((?:\s*(?:lakh|crore|thousand|million|billion))*)", lambda m: f"{m.group(1)}{m.group(2)} rupees", t)
     t = re.sub(r"(\d+)(st|nd|rd|th)\b", lambda m: num2words(int(m.group(1)), to="ordinal"), t)
