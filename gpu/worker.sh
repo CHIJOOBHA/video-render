@@ -10,7 +10,7 @@ trap 'fail $LINENO' ERR
 (apt-get -qq update && apt-get -qq install -y git curl ffmpeg libsndfile1) >/dev/null 2>&1 || true
 cd $J && curl -sSL --fail --retry 4 -o p.tgz "$PAYLOAD_URL" && tar -xzf p.tgz
 pip install -q torchdiffeq x_transformers vocos ema_pytorch pydub jieba pypinyin cached_path soundfile librosa \
-    safetensors accelerate datasets wandb pyyaml "numpy<=1.26.4" "transformers<4.50"
+    safetensors accelerate datasets wandb pyyaml matplotlib tqdm hydra-core "pyarrow<17" "numpy<=1.26.4" "transformers<4.50"
 git clone -q --depth 1 https://github.com/AI4Bharat/IndicF5 /opt/IndicF5-src && pip install -q --no-deps -e /opt/IndicF5-src
 M=/opt/indicf5; mkdir -p $M/checkpoints
 for f in config.json checkpoints/vocab.txt model.safetensors; do

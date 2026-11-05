@@ -12,7 +12,8 @@ image = (
     .apt_install("git", "curl", "ffmpeg", "libsndfile1")
     .pip_install("torch==2.4.1", "torchaudio==2.4.1")
     .pip_install("torchdiffeq", "x_transformers", "vocos", "ema_pytorch", "pydub", "jieba", "pypinyin", "cached_path",
-                 "soundfile", "librosa", "safetensors", "accelerate", "datasets", "wandb", "pyyaml",
+                 "soundfile", "librosa", "safetensors", "accelerate", "datasets", "wandb", "pyyaml", "matplotlib", "tqdm",
+                 "hydra-core", "pyarrow<17",
                  "numpy<=1.26.4", "transformers<4.50")
     .run_commands(
         "git clone -q --depth 1 https://github.com/AI4Bharat/IndicF5 /opt/IndicF5-src && pip install -q --no-deps -e /opt/IndicF5-src",
