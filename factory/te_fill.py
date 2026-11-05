@@ -75,8 +75,8 @@ def main():
                 "# TELUGU NOTES\n" + part["te"] + "\n\n# JUST SAID\n" + json.dumps(prev[-3:], ensure_ascii=False) +
                 "\n\n# ENGLISH SCENES TO MATCH\n" + json.dumps(ask_scenes, ensure_ascii=False) +
                 '\n\nReturn ONLY JSON: {"<scene id>": {"beats": ["తెలుగు", ...same count...], "screen": {"<english text>": "తెలుగు"}}}')
-        fixes = {}
-        for rnd in range(3):
+        fixes, why = {}, {}
+        for rnd in range(5):
             out = ask(base if rnd == 0 else base + "\n\n# FIX ONLY THESE\n" + json.dumps(fixes, ensure_ascii=False),
                       f"te group {gi + 1}/{len(groups)} round {rnd}", prefer=PREFER)
             if not isinstance(out, dict): continue
@@ -87,16 +87,20 @@ def main():
                 if isinstance(beats, list) and len(beats) == len(sc["sentences"]):
                     for k, (s, te) in enumerate(zip(sc["sentences"], beats)):
                         if not s["text"]["te"] and not beat_errs(te): s["text"]["te"] = te.strip()
+                        elif not s["text"]["te"]: why[(sc["id"], k)] = beat_errs(te)
                 elif isinstance(beats, dict):                      # repair answers: {"beat number": "..."}
                     for k, te in beats.items():
-                        if str(k).isdigit() and int(k) < len(sc["sentences"]) and not sc["sentences"][int(k)]["text"]["te"] and not beat_errs(te):
-                            sc["sentences"][int(k)]["text"]["te"] = te.strip()
+                        if str(k).isdigit() and int(k) < len(sc["sentences"]) and not sc["sentences"][int(k)]["text"]["te"]:
+                            if not beat_errs(te): sc["sentences"][int(k)]["text"]["te"] = te.strip()
+                            else: why[(sc["id"], int(k))] = beat_errs(te)
                 for p in strings(sc["data"], []):
                     if not p["te"] and isinstance(screen.get(p["en"]), str) and screen[p["en"]].strip():
                         t = screen[p["en"]].strip()
                         # numbers on screen stay digits, exactly as in English (4 Nov 2026: a date shown as words overflowed)
                         if sorted(re.findall(r"\d+", p["en"])) == sorted(re.findall(r"\d+", t)): p["te"] = t
-                miss_b = {k: s["text"]["en"] for k, s in enumerate(sc["sentences"]) if not s["text"]["te"]}
+                # 5 Nov 2026: the writer is told WHY its last answer for a beat was refused (digits, too long…)
+                miss_b = {k: s["text"]["en"] + (f"  [your last answer was refused: {', '.join(why[(sc['id'], k)])}]" if (sc["id"], k) in why else "")
+                          for k, s in enumerate(sc["sentences"]) if not s["text"]["te"]}
                 miss_s = sorted({p["en"] for p in strings(sc["data"], []) if p["en"].strip() and not p["te"]})
                 if miss_b or miss_s: fixes[sc["id"]] = {"beats (answer as {\"number\": \"తెలుగు\"})": miss_b, "screen": miss_s}
             if not fixes: break
