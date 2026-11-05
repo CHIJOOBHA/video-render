@@ -69,6 +69,7 @@ jobs:
           python3 factory/split.py w/notes "$SUBJ" "$CH" parts > /dev/null
           if [ "$(jq -r '.te_pending // false' w/src/lessons/auto/$PID.json)" = "true" ]; then
             $R2 get "jobs/factory/$SUBJ/$PID.md" rep.md 2>/dev/null || touch rep.md
+            export LIB_AFTER="$(jq -r '.lib_after // empty' req.json)"      # fresh remake: old-style Telugu not reused
             if ! python3 factory/te_fill.py w/src/lessons/auto/$PID.json parts/$PID.json w rep.md; then
               $R2 put rep.md "jobs/factory/$SUBJ/$PID.md"; echo "::warning::$PID Telugu not complete yet — retry next round"; exit 0
             fi

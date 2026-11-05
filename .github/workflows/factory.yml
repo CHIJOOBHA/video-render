@@ -13,6 +13,7 @@ on:
       only: { description: 'only these parts (e.g. ce1p1,ce1p3) — empty = all', default: '' }
       render: { description: 'queue renders (yes) or only write + check scripts (no)', default: 'yes' }
       order: { description: 'queue order (lower renders first; EO 10-29, Group 2 30-49)', default: '50' }
+      fresh: { description: 'remake: write every piece again in the current style (yes) or reuse finished pieces (no)', default: 'no' }
 permissions: { contents: read, actions: write, id-token: write }
 
 jobs:
@@ -41,4 +42,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RENDER: ${{ inputs.render }}
           ORD: ${{ inputs.order }}
-        run: bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"
+        run: |
+          if [ "${{ inputs.fresh }}" = "yes" ]; then export LIB_AFTER=$(date -u +%FT%TZ); echo "fresh remake: library pieces before $LIB_AFTER not reused"; fi
+          bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"

@@ -16,12 +16,18 @@ def get(kind, k):
     f = tempfile.mktemp()
     r = subprocess.run(["python3", R2, "get", f"jobs/factory/library/v3/{kind}/{k}.json", f], capture_output=True)
     if r.returncode or not os.path.exists(f): return None
-    try: return json.load(open(f, encoding="utf-8"))
+    try:
+        o = json.load(open(f, encoding="utf-8"))
+        # 5 Nov 2026 remakes: LIB_AFTER=<UTC time> reuses only pieces saved after it (written in the current style); older -> fresh
+        if os.environ.get("LIB_AFTER") and str(o.get("_at") or "") < os.environ["LIB_AFTER"]: return None
+        return o
     except Exception: return None
     finally:
         if os.path.exists(f): os.remove(f)
 
 def put(kind, k, obj):
+    import datetime
+    obj = dict(obj, _at=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     f = tempfile.mktemp(suffix=".json")
     json.dump(obj, open(f, "w", encoding="utf-8"), ensure_ascii=False)
     subprocess.run(["python3", R2, "put", f, f"jobs/factory/library/v3/{kind}/{k}.json"], capture_output=True)

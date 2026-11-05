@@ -46,7 +46,7 @@ for J in $(ls parts/*.json | sort -V); do
   if [ "${RENDER:-yes}" = "yes" ]; then
     # English renders wait in a queue too (queue.yml starts them as machines free up — thousands at once would time out)
     $R2 put out/$ID-en.req "work/factory/en-queue/$(printf '%s-%s-%02d-%02d' "${ORD:-50}" "$SUBJ" "$CH" "$P").json" && echo "EN queued"
-    jq --arg pid "$ID" --arg s "$SUBJ" --argjson c $CH '. + {part_id: $pid, subject: $s, chapter: $c}' out/$ID-te.req > q.json && mv q.json out/$ID-te.req
+    jq --arg pid "$ID" --arg s "$SUBJ" --argjson c $CH '. + {part_id: $pid, subject: $s, chapter: $c} + (if ($ENV.LIB_AFTER // "") != "" then {lib_after: $ENV.LIB_AFTER} else {} end)' out/$ID-te.req > q.json && mv q.json out/$ID-te.req
     $R2 put out/$ID-te.req "work/factory/te-queue/$(printf '%s-%s-%02d-%02d' "${ORD:-50}" "$SUBJ" "$CH" "$P").json" && echo "TE queued"
   fi
   echo "::notice title=$ID::READY — EN render started, TE queued"
