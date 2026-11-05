@@ -20,7 +20,8 @@ def points(notes, lang):
               "caption, each cross-reference ('see Chapter 10'), each exam-box line (past questions with their year, question "
               "number, statements and answer key), each trap/confusion-box item, each mnemonic. One point = one statement. "
               "Skip only practice MCQs at the end of a chapter and pure formatting. Keep the notes' own wording. For each point "
-              "give `keys`: the exact numbers, dates, names and terms in it that must be heard (as written in the notes)."
+              "give `keys`: the exact numbers, dates, names and terms in it that must be heard (as written in the notes) — never a "
+              "section or table number (2.4, 3.13, Table 1.2): those are not spoken."
               f"\nNotes language: {'Telugu' if lang == 'te' else 'English'}.\n\nReturn ONLY JSON: "
               '{"points": [{"n": 1, "point": "…", "keys": ["…"]}]}\n\n# NOTES\n' + notes, f"ledger {lang}",
               prefer=("anthropic", "gemini", "deepseek"))
@@ -28,6 +29,8 @@ def points(notes, lang):
     for i, p in enumerate(pts): p["n"] = i + 1; p["keys"] = [str(x) for x in p.get("keys") or [] if str(x).strip()]
     if pts: lib.put("ledger", k, {"points": pts})
     return pts
+
+SKIP = set()     # section / table ids of the part (set by the writer): never required to be spoken
 
 def _norm(s):   # 'one hundred and forty' = 'one hundred forty' (num2words leaves out the 'and')
     return re.sub(r" and ", " ", " " + re.sub(r"[\s\-–,]+", " ", s.lower()).strip() + " ").strip()
@@ -47,7 +50,7 @@ def _heard(key, text, lang):
     single_te = lang == "te" and re.fullmatch(r"[ఀ-౿]+", key.strip() or "x")
     for tok in re.findall(r"\d[\d,]*(?:\.\d+)?|[^\W\d_]+", key):
         if re.match(r"\d", tok):
-            if lang == "te": continue
+            if lang == "te" or tok in SKIP: continue
             n = tok.rstrip(",")
             if n in t or any(f in t for f in num_forms(n)): continue
             return False

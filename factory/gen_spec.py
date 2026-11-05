@@ -111,7 +111,7 @@ def coverage(notes, scenes):
     for w in re.findall(r"\b[A-Z][A-Za-z'’]+|\b[A-Z]{2,}\b", notes):
         k = re.sub(r"['’]s$", "", w.lower())
         if len(k) > 2 and not re.fullmatch(r"[IVX]+", w) and (w.isupper() or zipf_frequency(k, "en") < 3.2): names.add(w)
-    ids = sec_ids(notes)
+    ids = sec_ids(notes) | getattr(ledger, "SKIP", set())
     for n in re.findall(r"(?<![\d.,])\d[\d,]*(?:\.\d+)?(?:st|nd|rd|th|[a-z](?![a-z]))?", notes):     # Q12, G20, COP28 count too
         if n in ids: continue
         n = re.sub(r"(?:st|nd|rd|th|[a-z])$", "", n)
@@ -188,8 +188,13 @@ def speak_digits(t):
 
 # ---------------------------------------------------------------- section / table numbers (teacher-script rule 2; CHIJOBHA 4 Nov 2026:
 # "section numbers like 1.2 are copied onto the signs"). Ids come from the notes themselves: "## 1.2 …", "Table 1.2a —", "Box 3.1".
-def sec_ids(md):
-    ids = set(re.findall(r"^#+\s*(\d+(?:\.\d+)+[a-z]?)\s", md, flags=re.M))
+def sec_ids(md, chapter=None):
+    """Section / table ids of the notes. With the chapter number, any 'C.N' of this chapter counts too ('linked to 3.4')."""
+    ids = set()
+    if chapter is not None:
+        ids |= {x for x in re.findall(r"(?<![\d.])(\d+\.\d{1,2}[a-z]?)(?![\d%])(?!\s*(?:per\s*cent|crore|lakh|million|billion|km|kg|°))", md)
+                if x.split(".")[0] == str(chapter)}
+    ids |= set(re.findall(r"^#+\s*(\d+(?:\.\d+)+[a-z]?)\s", md, flags=re.M))
     ids |= set(re.findall(r"\b(?:Table|Box|Figure|Section|Sec\.|§)\s*(\d+(?:\.\d+)+[a-z]?)", md))
     ids |= set(re.findall(r"\b(?:see|See|in|In)\s+(\d+\.\d+[a-z]?)\b(?!\s*(?:%|per|crore|lakh|million|billion))", md))   # "see 3.13"
     ids |= set(re.findall(r"\((\d+\.\d+[a-z]?)\)", md)) & set(re.findall(r"\b(\d+\.\d+[a-z]?)\b", md))
@@ -396,7 +401,8 @@ def main():
              open(os.path.join(HERE, "menu.md"), encoding="utf-8").read())
     rules = rules.replace('All text is a pair `["English", "Telugu"]`.', "All text is plain English (Telugu is added later).")
     pieces = chunks(part["en"])
-    ids = sec_ids(part["en"])
+    ids = sec_ids(part["en"], part.get("chapter"))
+    ledger.SKIP = set(ids)            # section numbers are never spoken, so the ledger never asks for them
     if part.get("next"): part["next"] = screen_clean(str(part["next"]), ids)
     all_scenes, lex, report, blocking, ledgers = [], {}, [], [], []
     for ci, piece in enumerate(pieces):

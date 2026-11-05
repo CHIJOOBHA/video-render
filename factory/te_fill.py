@@ -104,6 +104,8 @@ def main():
                                                "screen": {p["en"]: p["te"] for p in strings(sc["data"], []) if p["te"]}})
     # ledger (5 Nov 2026): every point of the TELUGU notes of this part must be taught by the Telugu beats
     import ledger
+    from gen_spec import sec_ids
+    ledger.SKIP = sec_ids(part["te"], part.get("chapter"))
     led = ledger.points(part["te"], "te") if not bad_total else []
     miss, rows = [], []
     for rnd in range(3):
