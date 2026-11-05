@@ -29,7 +29,8 @@ def points(notes, lang):
     if pts: lib.put("ledger", k, {"points": pts})
     return pts
 
-def _norm(s): return re.sub(r"[\s\-–,]+", " ", s.lower()).strip()
+def _norm(s):   # 'one hundred and forty' = 'one hundred forty' (num2words leaves out the 'and')
+    return re.sub(r" and ", " ", " " + re.sub(r"[\s\-–,]+", " ", s.lower()).strip() + " ").strip()
 
 def _heard(key, text, lang):
     """A key is heard if each of its parts is in the text: words by their stem (Telugu endings change: 'దేశాలు'/'దేశాల'),
