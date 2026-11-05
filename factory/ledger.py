@@ -50,7 +50,27 @@ def _heard(key, text, lang):
     # only hard facts are re-checked by code: numbers, and names/abbreviations (capitalised Latin words; a one-word Telugu name).
     # Ordinary words may be said differently ("chair" / "presidency"); whether the meaning is right is the AI mapping's job.
     single_te = lang == "te" and re.fullmatch(r"[ఀ-౿]+", key.strip() or "x")
-    for tok in re.findall(r"\d[\d,]*(?:\.\d+)?|[^\W\d_]+", key):
+    # 5 Nov 2026: an abbreviation and its full name are the same name ('WEF' = 'World Economic Forum', 'United Nations' = 'UN')
+    caps = set(re.findall(r"\b[A-Z]{2,}\b", text))
+    words = [w for w in re.findall(r"[A-Za-z]+", text) if w.lower() not in ("of", "the", "and", "for", "on", "in")]
+    inits = {"".join(w[0] for w in words[i:j]).upper() for i in range(len(words)) for j in range(i + 2, min(len(words), i + 7) + 1)
+             if all(w[0].isupper() for w in words[i:j])}
+    toks = re.findall(r"\d[\d,]*(?:\.\d+)?|[^\W\d_]+", key)
+    skip_to = 0
+    for i, tok in enumerate(toks):
+        if i < skip_to: continue
+        if re.fullmatch(r"[A-Z]{2,}", tok) and tok in inits: continue
+        if tok[:1].isupper() and not re.fullmatch(r"[A-Z]{2,}", tok):
+            run = [t for t in toks[i:i + 7]]
+            k2 = [t for t in run if t.lower() not in ("of", "the", "and", "for", "on", "in")]
+            hit = next((j for j in range(len(k2), 1, -1) if all(t[:1].isupper() for t in k2[:j])
+                        and "".join(t[0] for t in k2[:j]).upper() in caps), 0)
+            if hit:
+                n = 0
+                for j, t in enumerate(run):
+                    if t.lower() not in ("of", "the", "and", "for", "on", "in"): n += 1
+                    if n == hit: skip_to = i + j + 1; break
+                continue
         if re.match(r"\d", tok):
             if lang == "te" or tok in SKIP: continue
             n = tok.rstrip(",")
@@ -79,7 +99,7 @@ def cover(ledger, beats, lang):
     for p in ledger:
         b = m.get(str(p["n"]))
         if not isinstance(b, int) or not 0 <= b < len(beats): out[p["n"]] = None; continue
-        near = " ".join(beats[j][1] for j in range(max(0, b - 2), min(len(beats), b + 3)))   # a point may span a few beats
+        near = " ".join(beats[j][1] for j in range(max(0, b - 4), min(len(beats), b + 5)))   # a point may span a few beats
         out[p["n"]] = beats[b][0] if all(_heard(k, near, lang) for k in p["keys"]) else None
     return out
 
@@ -96,7 +116,7 @@ def _recheck(pts, beats, lang):
         r = f.get(str(p["n"]))
         b = r.get("beat") if isinstance(r, dict) else None
         if isinstance(b, int) and 0 <= b < len(beats):
-            near = " ".join(beats[j][1] for j in range(max(0, b - 2), min(len(beats), b + 3)))
+            near = " ".join(beats[j][1] for j in range(max(0, b - 4), min(len(beats), b + 5)))
             if all(_heard(k, near, lang) for k in p["keys"]): ok[p["n"]] = beats[b][0]
     return ok
 
