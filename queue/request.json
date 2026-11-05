@@ -1,1 +1,3 @@
-{"video_id":"ce-en-ch14-p1","chapter_id":"ce-en-ch14","src":"src/f4fb310.tgz","lesson":"src/lessons/jr-ce14p1.ts","spec":"jrCe14p1Spec","comp":"JrCe14P1EN","lang":"en","chunks":16}
+{"video_id": "bitbadi-heist-te", "chapter_id": "bitbadi", "src": "src/2f5045f.tgz", "proj": "channels/bitbadi/heist",
+ "comp": "FULL-TE", "lang": "te", "chunks": 24, "te_shards": 16, "no_gpu": true, "te_from": "studio",
+ "te_ref": "channels/bitbadi/heist/voice/ref.wav", "te_flow": "0"}

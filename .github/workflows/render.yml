@@ -163,6 +163,10 @@ jobs:
           sleep $(( ${{ matrix.shard }} * 4 ))   # stagger the 1.4 GB model downloads
           bash w/tools/setup_indicf5.sh 2>&1 | tail -3
           # "redo" (Journal, 4 Nov 2026): voice only those <scene>_<i> lines; the rest come from "te_from" in plan
+          # "te_ref" / "te_flow" (5 Nov 2026, optional): another clip of CHIJOBHA's voice (path inside the project + ref.txt
+          # beside it) and the delivery mode, so a video keeps the reference it was started with. Unset = defaults as before.
+          if [ -n "$(jq -r '.te_ref // empty' $R)" ]; then export TE_REF="$PWD/w/$(jq -r .te_ref $R)"; fi
+          if [ -n "$(jq -r '.te_flow // empty' $R)" ]; then export TE_FLOW="$(jq -r .te_flow $R)"; fi
           ONLY="$(jq -r '.redo // [] | join(",")' $R)" SHARD="${{ matrix.shard }}/$N" python3 w/tools/voice_te.py sentences.json te-out > /dev/null
           tar -czf te-${{ matrix.shard }}.tgz -C te-out .
           python3 r2.py put te-${{ matrix.shard }}.tgz "work/$ID/${{ github.run_id }}/te/te-${{ matrix.shard }}.tgz"
