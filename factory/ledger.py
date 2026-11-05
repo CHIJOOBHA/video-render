@@ -32,18 +32,27 @@ def points(notes, lang):
 def _norm(s): return re.sub(r"[\s\-–,]+", " ", s.lower()).strip()
 
 def _heard(key, text, lang):
-    """A key is heard if it is in the text, as written or (numbers) in any spoken form; Telugu numbers are checked by the AI."""
-    k = key.strip(); t = _norm(text)
-    if _norm(k) in t: return True
-    if re.search(r"\d", k):
-        if lang == "te": return True                          # spoken as Telugu words: trusted to the mapping step
-        try:
-            from gen_spec import num_forms, speak_digits
-            if _norm(speak_digits(k)) in t: return True
-            return all(any(f in t for f in num_forms(n)) for n in re.findall(r"\d[\d,]*(?:\.\d+)?", k))
-        except Exception: return True
-    if re.fullmatch(r"[A-Z]{2,}", k) and " ".join(k).lower() in t: return True     # APPSC spoken as A P P S C
-    return False
+    """A key is heard if each of its parts is in the text: words by their stem (Telugu endings change: 'దేశాలు'/'దేశాల'),
+    numbers in any spoken form ('Q4' = 'question four', '16–20' = 'sixteen … twenty', '21st' = 'twenty-first'); Telugu numbers
+    are spoken as Telugu words, so for Telugu they are left to the AI mapping step."""
+    t = _norm(text)
+    if _norm(key) in t: return True
+    try:
+        from gen_spec import num_forms
+    except Exception:
+        num_forms = lambda n: {n}
+    for tok in re.findall(r"\d[\d,]*(?:\.\d+)?|[^\W\d_]+", key):
+        if re.match(r"\d", tok):
+            if lang == "te": continue
+            n = tok.rstrip(",")
+            if n in t or any(f in t for f in num_forms(n)): continue
+            return False
+        if tok.lower() in ("q", "st", "nd", "rd", "th", "the", "and", "of", "in", "a"): continue
+        if re.fullmatch(r"[A-Z]{2,}", tok) and " ".join(tok).lower() in t: continue
+        stem = tok.lower()[:max(3, len(tok) - 2)]
+        if stem in t: continue
+        return False
+    return True
 
 def cover(ledger, beats, lang):
     if not ledger: return {}
@@ -59,7 +68,7 @@ def cover(ledger, beats, lang):
     for p in ledger:
         b = m.get(str(p["n"]))
         if not isinstance(b, int) or not 0 <= b < len(beats): out[p["n"]] = None; continue
-        near = " ".join(beats[j][1] for j in range(max(0, b - 1), min(len(beats), b + 2)))
+        near = " ".join(beats[j][1] for j in range(max(0, b - 2), min(len(beats), b + 3)))   # a point may span a few beats
         out[p["n"]] = beats[b][0] if all(_heard(k, near, lang) for k in p["keys"]) else None
     return out
 

@@ -401,7 +401,7 @@ def main():
         first, last = ci == 0, ci == len(pieces) - 1
         where = (f"Chapter {part['chapter']} ({part['chapter_title']}), Part {part['part']} of {part['parts']}; it covers: "
                  f"{'; '.join(part['sections'])}. You now write piece {ci + 1} of {len(pieces)} of this part's lesson. "
-                 + (("Open like a class: greet the student (\"Namaste!\"), name the student's real problem with this topic, then promise "
+                 + (("Open like a class: greet with exactly \"Namaste!\" (never Hello), name the student's real problem with this topic, then promise "
                      "this part line by line with not one point missed" + (" (this is the chapter's first part)" if part["part"] == 1 else
                      "; say in one line what the last part covered") + ". The chapter title card is already shown. ") if first else
                     "Continue naturally from what was just said (do not greet or restart). ")
