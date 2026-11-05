@@ -41,16 +41,21 @@ def _heard(key, text, lang):
         from gen_spec import num_forms
     except Exception:
         num_forms = lambda n: {n}
+    # only hard facts are re-checked by code: numbers, and names/abbreviations (capitalised Latin words; a one-word Telugu name).
+    # Ordinary words may be said differently ("chair" / "presidency"); whether the meaning is right is the AI mapping's job.
+    single_te = lang == "te" and re.fullmatch(r"[ఀ-౿]+", key.strip() or "x")
     for tok in re.findall(r"\d[\d,]*(?:\.\d+)?|[^\W\d_]+", key):
         if re.match(r"\d", tok):
             if lang == "te": continue
             n = tok.rstrip(",")
             if n in t or any(f in t for f in num_forms(n)): continue
             return False
-        if tok.lower() in ("q", "st", "nd", "rd", "th", "the", "and", "of", "in", "a"): continue
+        if re.fullmatch(r"[ఀ-౿]+", tok):
+            if single_te and tok[:max(3, len(tok) - 2)] not in t: return False
+            continue
+        if not tok[:1].isupper() or tok.lower() in ("q", "the", "and", "of", "in", "a"): continue
         if re.fullmatch(r"[A-Z]{2,}", tok) and " ".join(tok).lower() in t: continue
-        stem = tok.lower()[:max(3, len(tok) - 2)]
-        if stem in t: continue
+        if tok.lower()[:max(3, len(tok) - 2)] in t: continue
         return False
     return True
 
@@ -72,8 +77,27 @@ def cover(ledger, beats, lang):
         out[p["n"]] = beats[b][0] if all(_heard(k, near, lang) for k in p["keys"]) else None
     return out
 
+def _recheck(pts, beats, lang):
+    """A second, focused look at only the points called missing (one long mapping call is noisy)."""
+    lines = "\n".join(f"[{i}] {t}" for i, (_, t) in enumerate(beats))
+    ans = ask("For EACH point below, find the beat(s) of the lesson that teach it completely and correctly (same facts, numbers, "
+              "names, meaning). Quote the words that teach it. If it is not taught, or taught wrongly or only half, say null."
+              '\n\nReturn ONLY JSON: {"found": {"<point n>": {"beat": 3, "quote": "…"} or null}}\n\n# POINTS\n' +
+              "\n".join(f"{p['n']}. {p['point']}" for p in pts) + "\n\n# BEATS\n" + lines, f"coverage recheck {lang}",
+              prefer=("anthropic", "gemini", "deepseek"))
+    f = (ans or {}).get("found") or {}; ok = {}
+    for p in pts:
+        r = f.get(str(p["n"]))
+        b = r.get("beat") if isinstance(r, dict) else None
+        if isinstance(b, int) and 0 <= b < len(beats):
+            near = " ".join(beats[j][1] for j in range(max(0, b - 2), min(len(beats), b + 3)))
+            if all(_heard(k, near, lang) for k in p["keys"]): ok[p["n"]] = beats[b][0]
+    return ok
+
 def missing(ledger, beats, lang):
     cov = cover(ledger, beats, lang)
+    first = [p for p in ledger if not cov.get(p["n"])]
+    if first: cov.update(_recheck(first, beats, lang))
     miss = [p for p in ledger if not cov.get(p["n"])]
     rows = [f"| {p['n']} | {p['point'][:110].replace('|', '/')} | {cov.get(p['n']) or 'MISSING'} |" for p in ledger]
     LOG.append(f"ledger {lang}: {len(ledger)} points, {len(miss)} not taught")

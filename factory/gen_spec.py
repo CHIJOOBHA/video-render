@@ -137,7 +137,7 @@ def added_names(notes_all, scenes):
     out = set()
     for w in re.findall(r"\b[A-Z][A-Za-z'’]{2,}", txt):
         k = re.sub(r"['’]s$", "", w.lower())
-        if zipf_frequency(k, "en") >= 3.2 or k in low: continue
+        if zipf_frequency(k, "en") >= 3.2 or k in low or k in ("namaste", "namaskaram"): continue   # the class greeting
         if re.fullmatch(r"[A-Z]+", w) and " ".join(w).lower() in low: continue
         out.add(w)
     return sorted(out)
@@ -191,6 +191,8 @@ def speak_digits(t):
 def sec_ids(md):
     ids = set(re.findall(r"^#+\s*(\d+(?:\.\d+)+[a-z]?)\s", md, flags=re.M))
     ids |= set(re.findall(r"\b(?:Table|Box|Figure|Section|Sec\.|§)\s*(\d+(?:\.\d+)+[a-z]?)", md))
+    ids |= set(re.findall(r"\b(?:see|See|in|In)\s+(\d+\.\d+[a-z]?)\b(?!\s*(?:%|per|crore|lakh|million|billion))", md))   # "see 3.13"
+    ids |= set(re.findall(r"\((\d+\.\d+[a-z]?)\)", md)) & set(re.findall(r"\b(\d+\.\d+[a-z]?)\b", md))
     return ids
 
 LABEL_ID = re.compile(r"\b(Table|Box|Figure|Section|Sec\.|§)\s*\d+(?:\.\d+)+[a-z]?\b\.?\s*[—–:·-]?\s*")
@@ -440,7 +442,7 @@ def main():
                 "\n\n# TEACH EVERY POINT OF THESE NOTES — every sentence, bullet, table row, name, number, date, section, term, "
                 "exam box and source note — in order, explained like a teacher (at least one beat per notes point; usually "
                 "more words than the notes, never fewer). Leave out only practice MCQs.\n" + piece + "\n\n# ANSWER\n" + SHAPE)
-        out, errs, mn, mu, miss = None, [], [], [], []
+        out, errs, mn, mu, miss, best = None, [], [], [], [], None
         led = ledger.points(piece, "en")
         for rnd in range(5):
             prompt = base if out is None else (base + "\n\n# YOUR LAST ANSWER\n" + json.dumps(out) + "\n\n# CHECKER FOUND\n" +
@@ -481,8 +483,12 @@ def main():
             beats_all = [(f"{sc['id']}#{i}", b["en"]) for sc in out["scenes"] for i, b in enumerate(sc.get("beats") or [])
                          if isinstance(b, dict) and isinstance(b.get("en"), str)]
             miss, rows = ledger.missing(led, beats_all, "en") if led else ([], [])
+            # 5 Nov 2026: a rewrite can fix some points and drop others — keep the best answer seen, not the last one
+            bad = len(miss) * 3 + len(mn) * 3 + len(mu) * 2 + len(hard) * 2 + (5 if sw < 0.9 * nw else 0)
+            if best is None or bad < best[0]: best = (bad, json.loads(json.dumps(out)), errs, mn, mu, miss, rows, nw, sw)
             if not mn and not mu and not miss and not hard and sw >= 0.9 * nw and len(errs) <= 4: break
         if out is None: sys.exit(f"piece {ci + 1}: no usable answer")
+        if best: _, out, errs, mn, mu, miss, rows, nw, sw = best
         # visuals that still break a rule are replaced by tiles of the notes column (a picture slip never blocks a video)
         for sc in out["scenes"]:
             ok = [v for j, v in enumerate(sc.get("visuals") or []) if not any(e.startswith(f"{sc['id']} visual {j}") for e in errs)]
