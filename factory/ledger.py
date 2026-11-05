@@ -120,10 +120,33 @@ def _recheck(pts, beats, lang):
             if all(_heard(k, near, lang) for k in p["keys"]): ok[p["n"]] = beats[b][0]
     return ok
 
+def _where_keys(pts, beats, lang):
+    """Third look (5 Nov 2026): the two mapping calls sometimes miss a point that is plainly taught ('Four: the United Nations at
+    eighty…'). Code finds the beats where every key of the point is heard; one short question per point then asks whether
+    those few beats teach it completely and correctly. A point whose keys are not all heard anywhere stays missing."""
+    cands = {}
+    for p in pts:
+        if not p["keys"]: continue
+        for b in range(len(beats)):
+            near = " ".join(beats[j][1] for j in range(max(0, b - 2), min(len(beats), b + 3)))
+            if all(_heard(k, near, lang) for k in p["keys"]):
+                cands[p["n"]] = (b, [(beats[j][0], beats[j][1]) for j in range(max(0, b - 2), min(len(beats), b + 3))]); break
+    if not cands: return {}
+    ans = ask("For each POINT of the notes below, the lesson passage next to it is where its names and numbers are spoken. Answer "
+              "true only if the passage teaches the point COMPLETELY and CORRECTLY (same facts, numbers, names and meaning; said in "
+              "other words is fine). Half taught, changed or wrong = false."
+              '\n\nReturn ONLY JSON: {"ok": {"<point n>": true, …}}\n\n' +
+              "\n\n".join(f"POINT {n}: {next(p['point'] for p in pts if p['n'] == n)}\nPASSAGE: " + " ".join(t for _, t in ps)
+                          for n, (b, ps) in cands.items()), f"coverage verify {lang}", prefer=("anthropic", "gemini", "deepseek"))
+    ok = (ans or {}).get("ok") or {}
+    return {n: beats[b][0] for n, (b, _) in cands.items() if ok.get(str(n)) is True}
+
 def missing(ledger, beats, lang):
     cov = cover(ledger, beats, lang)
     first = [p for p in ledger if not cov.get(p["n"])]
     if first: cov.update(_recheck(first, beats, lang))
+    miss = [p for p in ledger if not cov.get(p["n"])]
+    if miss: cov.update(_where_keys(miss, beats, lang))
     miss = [p for p in ledger if not cov.get(p["n"])]
     rows = [f"| {p['n']} | {p['point'][:110].replace('|', '/')} | {cov.get(p['n']) or 'MISSING'} |" for p in ledger]
     LOG.append(f"ledger {lang}: {len(ledger)} points, {len(miss)} not taught")

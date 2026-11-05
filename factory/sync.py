@@ -130,6 +130,17 @@ def no_empty_picture(sc):
     for j, l in enumerate(lays):
         if j + 1 < len(lays): l["out"] = lays[j + 1]["at"]
         else: l.pop("out", None)
+    # 5 Nov 2026: a list item whose words come after its drawing has left moves to the next drawing when that is the same kind
+    # of list (tiles -> tiles): it then appears on the clip that says it instead of sending the whole piece back for a rewrite
+    for j, l in enumerate(lays[:-1]):
+        nx = lays[j + 1]
+        if nx.get("p") != l.get("p"): continue
+        for k in LISTK:
+            if not isinstance(l.get(k), list) or not isinstance(nx.get(k), list): continue
+            late = [it for it in l[k] if isinstance(it, dict) and isinstance(it.get("_w"), (int, float)) and int(it["_w"]) >= l["out"]]
+            if late and len(late) < len(l[k]):
+                l[k] = [it for it in l[k] if it not in late]; nx[k] = late + nx[k]
+    for j, l in enumerate(lays):
         at = l["at"]
         def snap(it, key="a"):
             w = it.get("_w")
