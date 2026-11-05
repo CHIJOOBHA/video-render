@@ -249,8 +249,12 @@ def letters_digits(t):
 def build(part, scenes_in):
     ch, pt = part["chapter"], part["part"]
     secs = [re.sub(r"^[\d.]+\s*", "", s) for s in part["sections"]]
-    say = f"Chapter {spoken_num(ch)}, part {spoken_num(pt)}. {part['chapter_title']}. In this part: {', '.join(secs[:4])}."
-    scenes = [{"id": "c00", "template": "chapterCard", "sentences": [{"text": P(say_numbers(say))}],
+    # spoken titles (5 Nov 2026: 'Gtwenty — Johannesburg (twenty twenty-five)' was read out): dashes and brackets become pauses,
+    # letters+digits are spoken as 'G twenty', and the topics are joined as a list
+    tt = [re.sub(r"\s+", " ", re.sub(r"[()?]", "", re.sub(r"\s*[—–]\s*", ", ", x))).strip(" ,") for x in secs[:4]]
+    say = f"Chapter {spoken_num(ch)}, part {spoken_num(pt)}. {part['chapter_title']}. In this part: " + \
+          ("; ".join(tt[:-1]) + "; and " + tt[-1] if len(tt) > 1 else "".join(tt)) + "."
+    scenes = [{"id": "c00", "template": "chapterCard", "sentences": [{"text": P(spoken_fix(say))}],
                "data": {"kicker": P(f"Chapter {ch} · Part {pt}"), "title": P(part["chapter_title"]),
                         "sub": P(" · ".join(secs[:3])[:90]), "art": "vimana"}}]
     nb_total = 0
@@ -448,7 +452,7 @@ def main():
             if not h_bad:     # every notes point must be taught by the stored piece too
                 hb = [(f"{sc['id']}#{i}", b["en"]) for sc in hit["scenes"] for i, b in enumerate(sc.get("beats") or []) if isinstance(b, dict)]
                 lp = ledger.points(piece, "en"); hm, hr = ledger.missing(lp, hb, "en") if lp else ([1], [])
-                if hm or ledger.added(piece, hb, "en"): h_bad = True
+                if hm or ledger.added(piece, hb, "en", prev=part.get("prev") if first else None): h_bad = True
                 else: ledgers.append((ci + 1, lp, hr))
             if h_bad: LOG.append(f"piece {ci + 1}: library piece {lk} fails today's checks — written again"); hit = None
         if hit and isinstance(hit.get("scenes"), list) and hit["scenes"]:
