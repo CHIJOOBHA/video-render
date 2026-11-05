@@ -426,7 +426,8 @@ def main():
                      "this part line by line with not one point missed" + (" (this is the chapter's first part)" if part["part"] == 1 else
                      f"; say in one line what the last part covered — only these topic names, no facts: {part.get('prev') or 'the earlier part'}") + ". The chapter title card is already shown. ") if first else
                     "Continue naturally from what was just said (do not greet or restart). ")
-                 + ((f"End this piece with a short recap of the whole part, then say the next part covers: {part['next']}."
+                 + ((f"End this piece with a short recap of the WHOLE part — one line for each of its topics ({'; '.join(part['sections'])}), "
+                     f"not only this piece — then say, naming them, that the next part covers: {part['next']}."
                      if part.get("next") else "End with a recap of the whole chapter's key lines.") if last else
                     "Do not recap yet — the lesson continues in the next piece."))
         prev = [b["en"] for sc in all_scenes[-2:] for b in sc["beats"]][-4:]
