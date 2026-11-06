@@ -531,3 +531,12 @@ jobs:
           ID=$(jq -r .video_id queue/request.json)
           echo "{\"state\":\"failed\",\"runner\":\"public\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json
           python3 r2.py put s.json "jobs/$ID.json" || true
+
+  next:      # 6 Nov 2026: when a render ends (any result), the re-voice queue starts the next chosen part at once
+    needs: [finish]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/revoice.yml/dispatches" -f ref=main || true
