@@ -42,7 +42,8 @@ jobs:
       - name: Frames ${{ matrix.range }}
         run: |
           python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
-          command -v ffmpeg >/dev/null || { sudo apt-get -qq update >/dev/null; sudo apt-get -qq install -y ffmpeg >/dev/null; }
+          sudo apt-get -qq update >/dev/null; sudo apt-get -qq install -y libegl1 libgl1 libfontconfig1 >/dev/null
+          command -v ffmpeg >/dev/null || sudo apt-get -qq install -y ffmpeg >/dev/null
           pip install -q skia-python numpy
           R="${{ matrix.range }}"; A=${R%-*}; B=${R#*-}; P=$(printf "%06d" $A)
           (cd w && python3 render.py range $A $B ../c-$P.mp4)
