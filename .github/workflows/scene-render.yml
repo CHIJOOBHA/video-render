@@ -1,0 +1,66 @@
+# Frame-drawn videos (skia + ffmpeg, no Remotion), split over many free machines. Contains NO course content:
+# the private project (render.py + scenes + voice.mp3) comes from private storage, and the finished video goes back there.
+# Project contract: `python3 render.py range <f0> <f1> out.mp4` draws frames f0..f1-1 at 1920x1080/30fps; voice.mp3 is the sound.
+# Dispatch: gh workflow run scene-render.yml -f src=src/<x>.tgz -f id=<video-id> -f chunks=20
+name: scene-render
+run-name: scene-render ${{ inputs.id }}
+on:
+  workflow_dispatch:
+    inputs:
+      src: { description: 'private project tarball key', required: true }
+      id: { description: 'video id', required: true }
+      chunks: { description: 'machines', required: false, default: '20' }
+permissions: { contents: read, id-token: write }
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      ranges: ${{ steps.p.outputs.ranges }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: |
+          python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y ffmpeg >/dev/null
+          D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 w/voice.mp3)
+          echo "ranges=$(python3 -c "import json,math;f=math.ceil(float('$D')*30);n=int('${{ inputs.chunks }}');s=-(-f//n);print(json.dumps([f'{a}-{min(f,a+s)}' for a in range(0,f,s)]))")" >> "$GITHUB_OUTPUT"
+          echo "{\"state\":\"started\",\"run\":\"$GITHUB_RUN_ID\"}" > s.json && python3 r2.py put s.json "jobs/${{ inputs.id }}.json"
+
+  chunk:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        range: ${{ fromJson(needs.plan.outputs.ranges) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Frames ${{ matrix.range }}
+        run: |
+          python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          command -v ffmpeg >/dev/null || { sudo apt-get -qq update >/dev/null; sudo apt-get -qq install -y ffmpeg >/dev/null; }
+          pip install -q skia-python numpy
+          R="${{ matrix.range }}"; A=${R%-*}; B=${R#*-}; P=$(printf "%06d" $A)
+          (cd w && python3 render.py range $A $B ../c-$P.mp4)
+          python3 r2.py put c-$P.mp4 "work/${{ inputs.id }}/$GITHUB_RUN_ID/c-$P.mp4"
+
+  finish:
+    needs: chunk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ID="${{ inputs.id }}"; RUN=$GITHUB_RUN_ID
+          sudo apt-get -qq update >/dev/null && sudo apt-get -qq install -y ffmpeg >/dev/null
+          python3 r2.py get "${{ inputs.src }}" src.tgz && mkdir w && tar -xzf src.tgz -C w
+          for k in $(python3 r2.py list "work/$ID/$RUN/" | awk '{print $3}' | grep '/c-' | sort); do python3 r2.py get "$k" "$(basename $k)"; echo "file '$(basename $k)'" >> list.txt; done
+          ffmpeg -v error -f concat -safe 0 -i list.txt -c copy pic.mp4
+          ffmpeg -v error -i pic.mp4 -i w/voice.mp3 -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart final.mp4
+          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of compact final.mp4
+          python3 r2.py put final.mp4 "work/$ID/final.mp4"
+          echo "{\"state\":\"done\",\"run\":\"$RUN\",\"key\":\"work/$ID/final.mp4\",\"bytes\":$(stat -c%s final.mp4)}" > s.json && python3 r2.py put s.json "jobs/$ID.json"
+          for k in $(python3 r2.py list "work/$ID/$RUN/" | awk '{print $3}'); do python3 r2.py rm "$k"; done
