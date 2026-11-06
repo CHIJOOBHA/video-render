@@ -23,6 +23,8 @@ translate into Telugu.
   words: BRICS -> బ్రిక్స్ ; NATO -> నాటో ; ASEAN -> ఆసియాన్ .
 - Indian names, places and Sanskrit/Telugu words in their normal Telugu spelling: Narendra Modi -> నరేంద్ర మోదీ ;
   Bharat Mandapam -> భారత్ మండపం ; Tirumala -> తిరుమల .
+- English words that NAME a language or a thing are still English words, never their Telugu word: Sanskrit -> సంస్క్రిట్
+  (never సంస్కృతం) ; Telugu -> తెలుగు ; Kanda -> కాండ ; Ramayana -> రామాయణ .
 - Natural English phrasing: keep . ? ! at the end. A comma ONLY where a native English speaker pauses for breath (between
   clauses, after an opening phrase, around a date or a list). Remove any comma that splits a phrase in the middle
   ("you already know, how" -> no comma). A long sentence may get one comma at its natural breath point.
