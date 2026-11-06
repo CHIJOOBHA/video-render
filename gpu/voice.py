@@ -161,6 +161,8 @@ PLATFORMS = {"modal": (("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"), modal_run),
 
 order_f = f"{ROOT}/queue/gpu-order"
 order = open(order_f).read().split() if os.path.exists(order_f) else ["modal", "kaggle", "runpod", "vast"]
+if os.environ.get("GPU_ORDER", "").strip():   # 6 Nov 2026: a request can limit the platforms (e.g. "kaggle" = free only)
+    order = os.environ["GPU_ORDER"].split()
 os.makedirs(out_dir, exist_ok=True)
 p = payload()
 for name in order:

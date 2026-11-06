@@ -150,7 +150,7 @@ jobs:
             mkdir -p w/voices/en-chijobha && python3 r2.py get voice/en-chijobha/ref.wav w/voices/en-chijobha/ref.wav && python3 r2.py get voice/en-chijobha/ref.txt w/voices/en-chijobha/ref.txt
             jq '.te_ref = "voices/en-chijobha/ref.wav"' $R > r2.json && mv r2.json $R
           fi
-          export ONLY="$(jq -r '.redo // [] | join(",")' $R)" TE_REF="$(jq -r '.te_ref // empty' $R)" TE_FLOW="$(jq -r '.te_flow // empty' $R)"
+          export ONLY="$(jq -r '.redo // [] | join(",")' $R)" TE_REF="$(jq -r '.te_ref // empty' $R)" TE_FLOW="$(jq -r '.te_flow // empty' $R)" GPU_ORDER="$(jq -r '.gpu_order // empty' $R)"
           python3 gpu/voice.py w sentences.json gpu-out "$ID" "$RUN"
           for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/$ID/$RUN/te/$(basename "$f")"; done
           echo "ok=true" >> "$GITHUB_OUTPUT"
