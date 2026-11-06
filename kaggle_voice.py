@@ -23,7 +23,7 @@ with tarfile.open(fileobj=buf, mode="w:gz") as t:
 payload = base64.b64encode(buf.getvalue()).decode()
 import shlex   # ONLY (re-voice lines), TE_REF (voice clip inside the job), TE_FLOW passed to the voice on Kaggle
 ENVS = " ".join(f"{k}={shlex.quote(('/tmp/job/' + v) if k == 'TE_REF' else v)}"
-                for k, v in ((k, os.environ.get(k, "").strip()) for k in ("ONLY", "TE_REF", "TE_FLOW")) if v)
+                for k, v in ((k, os.environ.get(k, "").strip()) for k in ("ONLY", "TE_REF", "TE_FLOW", "TE_SPEED")) if v)
 
 kernel = r'''
 import base64, io, os, subprocess, tarfile, hashlib

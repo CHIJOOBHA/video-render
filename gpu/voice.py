@@ -12,7 +12,7 @@ workflow falls back to the 16 free GitHub CPU machines, exactly as before."""
 import glob, io, json, math, os, shutil, subprocess, sys, tarfile, tempfile, time
 
 src, sentences, out_dir, vid, run = sys.argv[1:6]
-ONLY, TE_REF, TE_FLOW = (os.environ.get(k, "").strip() for k in ("ONLY", "TE_REF", "TE_FLOW"))
+ONLY, TE_REF, TE_FLOW, TE_SPEED = (os.environ.get(k, "").strip() for k in ("ONLY", "TE_REF", "TE_FLOW", "TE_SPEED"))
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 T0 = time.time()
@@ -78,7 +78,7 @@ def rented(p, name, start, stop):
     r2("put", p, f"{base}/payload.tgz")
     res = f"{base}/{name}-result.tgz"
     env = {"PAYLOAD_URL": r2("url", "GET", f"{base}/payload.tgz"), "RESULT_URL": r2("url", "PUT", res),
-           "ONLY": ONLY, "TE_REF": TE_REF, "TE_FLOW": TE_FLOW}
+           "ONLY": ONLY, "TE_REF": TE_REF, "TE_FLOW": TE_FLOW, "TE_SPEED": TE_SPEED}
     job = os.path.join(tempfile.mkdtemp(), "job.sh")       # the job (with its two links) goes up as a file, so the
     open(job, "w").write("#!/bin/bash\n" + "".join(f"export {k}='{v}'\n" for k, v in env.items())  # machine's start
                          + open(f"{HERE}/worker.sh").read())                                     # command stays short
