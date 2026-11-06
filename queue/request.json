@@ -1,14 +1,13 @@
 {
-  "video_id": "ram-en-ch01-p1",
-  "chapter_id": "ram-en-ch01",
+  "video_id": "ram-te-ch01-p1",
+  "chapter_id": "ram-te-ch01",
   "src": "src/054e256.tgz",
   "lesson": "src/lessons/jr-ram01p1.ts",
   "spec": "jrRam01p1Spec",
-  "comp": "JrRam01P1EN",
-  "lang": "en",
+  "comp": "JrRam01P1TE",
+  "lang": "te",
   "chunks": 16,
   "colab": true,
   "hold": true,
-  "te_shards": 16,
-  "en_voice": "chijobha"
+  "te_shards": 16
 }
