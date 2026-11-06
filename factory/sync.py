@@ -200,7 +200,18 @@ def strip_marks(spec):
                 for it in (v if isinstance(v, list) else [v] if isinstance(v, dict) else []):
                     if isinstance(it, dict): it.pop("_w", None); it.pop("_lw", None)
 
+def text_shapes(spec):
+    """6 Nov 2026: a drawing field that must be one text line sometimes comes back from the AI as a {h, t} card
+    (tree root in Ch 3 P5) and the whole render crashed ("t.split is not a function"). Keep its heading."""
+    for sc in spec.get("scenes") or []:
+        for l in (sc.get("data") or {}).get("layers") or []:
+            for k in ("root", "title", "sub", "name", "role", "stamp"):
+                v = l.get(k)
+                if isinstance(v, dict) and not ({"en", "te"} >= set(v)):
+                    l[k] = v.get("h") or v.get("t") or {"en": "", "te": ""}
+
 def sync_spec(spec, report=None):
+    text_shapes(spec)
     n = sum(sync_scene(sc) for sc in spec.get("scenes") or [])
     for sc in spec.get("scenes") or []: no_empty_picture(sc)
     if report is not None: report += timing_report(spec)
