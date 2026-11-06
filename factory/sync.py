@@ -209,6 +209,34 @@ def text_shapes(spec):
                 v = l.get(k)
                 if isinstance(v, dict) and not ({"en", "te"} >= set(v)):
                     l[k] = v.get("h") or v.get("t") or {"en": "", "te": ""}
+    readable(spec)
+
+def readable(spec):
+    """6 Nov 2026 (Ch 3 screen checks: text under 26 px): crowded drawings are re-laid so every line stays readable.
+    - a timeline (dates) of 3+ events with long lines: one event per card, stacked (tiles, one column)
+    - a single column of 4+ tall cards: shorter cards; 5+ cards: shown three at a time (the next group replaces it)"""
+    def ln(v): return max((len(x.strip()) for x in en(v).split("|")), default=0)
+    for sc in spec.get("scenes") or []:
+        ls = (sc.get("data") or {}).get("layers") or []
+        out = []
+        for l in ls:
+            if l.get("p") == "dates" and len(l.get("events") or []) >= 3 and \
+                    (len(l["events"]) >= 4 or max(ln(e.get("t")) for e in l["events"]) > 22):
+                l = {k: v for k, v in l.items() if k not in ("events", "w", "p")} | {
+                    "p": "tiles", "cols": 1, "w": 1000, "h": 175,
+                    "items": [{"h": e.get("date"), "t": e.get("t"), "a": e.get("a", l.get("at", 0))} for e in l["events"]]}
+            if l.get("p") == "tiles" and (l.get("cols") or 2) == 1 and len(l.get("items") or []) >= 4:
+                its = l["items"]; l = dict(l, w=max(l.get("w") or 0, 1000), h=min(l.get("h") or 175, 175))
+                if len(its) >= 5:
+                    for g in range(0, len(its), 3):
+                        part = dict(l, items=its[g:g + 3])
+                        if g: part["at"] = its[g].get("a", part.get("at", 0))
+                        if g + 3 < len(its): part["out"] = its[g + 3].get("a", part.get("out"))
+                        elif "out" in l: part["out"] = l["out"]
+                        out.append(part)
+                    continue
+            out.append(l)
+        if ls: sc["data"]["layers"] = out
 
 def sync_spec(spec, report=None):
     text_shapes(spec)
