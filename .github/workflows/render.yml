@@ -108,7 +108,7 @@ jobs:
             set +e; KOKORO_DIR=$HOME/kokoro-model python3 -I tools/pron_listen.py sentences.json $RUNNER_TEMP/pron.json "$(jq -r '.voice // "roki-in50"' $R)"; PR=$?; set -e
             python3 $GITHUB_WORKSPACE/r2.py put $RUNNER_TEMP/pron.json "work/$ID/$GITHUB_RUN_ID/pron.json"
             [ $PR = 0 ] || { echo "::error title=new words::$(jq -r '.unclear | join(", ")' $RUNNER_TEMP/pron.json) not heard clearly — fix their spelling"; exit 1; }
-            KOKORO_DIR=$HOME/kokoro-model OUT=$RUNNER_TEMP bash tools/chapter.sh voice "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$(jq -r .comp $R)" "$(jq -r '.voice // "roki-in50"' $R)"
+            SPEED="$(jq -r '.speed // 1.06' $R)" KOKORO_DIR=$HOME/kokoro-model OUT=$RUNNER_TEMP bash tools/chapter.sh voice "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$(jq -r .comp $R)" "$(jq -r '.voice // "roki-in50"' $R)"
             tar -czf en-voice.tgz -C public/voice/en .
             python3 $GITHUB_WORKSPACE/r2.py put en-voice.tgz "work/$ID/$GITHUB_RUN_ID/en-voice.tgz"
             echo "shards=[]" >> "$GITHUB_OUTPUT"
