@@ -30,9 +30,9 @@ jobs:
   chunk:
     needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15   # 6 Nov 2026: a few machines hung (others finish in ~3 min); re-run failed jobs keeps the rest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         range: ${{ fromJson(needs.plan.outputs.ranges) }}
     steps:
