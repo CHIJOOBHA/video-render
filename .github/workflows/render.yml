@@ -532,7 +532,7 @@ jobs:
           R=$PWD/queue/request.json; P=$(jq -r '.proj // empty' $R); L=$(jq -r '.lang // "en"' $R)
           [ -n "$P" ] || exit 0
           cd w/$P && pip install -q faster-whisper numpy
-          python3 tools/te_timeline.py sentences sentences.json
+          python3 tools/te_timeline.py sentences sentences.json "$L"
           D=$(ffprobe -v error -show_entries format=duration -of csv=p=0 hd.mp4)
           B=$(ffmpeg -v info -i hd.mp4 -vf "blackdetect=d=1.0:pix_th=0.10" -an -f null - 2>&1 | grep -c black_start || true)
           echo "::notice title=video::duration ${D}s · black stretches over 1s: ${B}"
