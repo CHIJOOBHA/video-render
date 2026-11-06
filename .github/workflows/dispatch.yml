@@ -19,6 +19,8 @@ jobs:
           jq -c '.[]' queue/dispatch.json | while read -r e; do
             C=$(echo "$e" | jq -r '.cancel // empty')   # {"cancel": <run id>} stops a run (e.g. a double start)
             if [ -n "$C" ]; then gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$C/cancel" && echo "cancelled $C"; continue; fi
+            FC=$(echo "$e" | jq -r '.force_cancel // empty')   # a run that ignores a normal cancel
+            if [ -n "$FC" ]; then gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$FC/force-cancel" && echo "force-cancelled $FC"; continue; fi
             W=$(echo "$e" | jq -r .workflow)
             ARGS=$(echo "$e" | jq -r '(.inputs // {}) | to_entries[] | "inputs[\(.key)]=\(.value|tostring)"')
             set -- ; while IFS= read -r a; do [ -n "$a" ] && set -- "$@" -f "$a"; done <<< "$ARGS"
