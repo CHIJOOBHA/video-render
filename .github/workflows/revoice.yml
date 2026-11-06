@@ -31,7 +31,7 @@ jobs:
           for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | grep -F -f want.txt | sort | head -n $FREE); do
             $R2 get "$K" req.json
             jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two
-                   | if (.lang // "en") == "en" and .proj == null then .en_voice //= "chijobha" | .te_shards //= 16 else . end' req.json > rq.json
+                   | if (.lang // "en") == "en" and .proj == null and .voice == null then .en_voice //= "chijobha" | .te_shards //= 16 else . end' req.json > rq.json
             gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(cat rq.json)" \
               && $R2 rm "$K" && echo "started $(jq -r .video_id rq.json)"
             sleep 2

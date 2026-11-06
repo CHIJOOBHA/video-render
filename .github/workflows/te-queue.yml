@@ -25,7 +25,7 @@ jobs:
           for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | sort | head -n $(( FREE > 0 ? FREE : 0 ))); do
             $R2 get "$K" req.json && jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two' req.json > rq.json && mv rq.json req.json
             # 6 Nov 2026 (CHIJOBHA approved Ch14 P1): every Roach Academia English video is voiced in his own voice
-            jq -c 'if (.lang // "en") == "en" and .proj == null then .en_voice //= "chijobha" | .te_shards //= 16 else . end' req.json > rq.json && mv rq.json req.json
+            jq -c 'if (.lang // "en") == "en" and .proj == null and .voice == null then .en_voice //= "chijobha" | .te_shards //= 16 else . end' req.json > rq.json && mv rq.json req.json
             gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . req.json)" \
               && $R2 rm "$K" && echo "started $(jq -r .video_id req.json)"
           done
