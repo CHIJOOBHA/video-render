@@ -1,0 +1,25 @@
+# Start other workflows by a push (6 Nov 2026): Claude's working sessions have no GitHub key, only git push.
+# queue/dispatch.json = [{"workflow": "factory.yml", "inputs": {...}}, ...] — each entry is started once, by this push.
+# Contains NO course content (subject names, part ids, storage keys only).
+name: dispatch
+run-name: ${{ github.event.head_commit.message || 'dispatch (manual)' }}
+on:
+  push:
+    branches: [main]
+    paths: ['queue/dispatch.json']
+permissions: { contents: read, actions: write }
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          jq -c '.[]' queue/dispatch.json | while read -r e; do
+            W=$(echo "$e" | jq -r .workflow)
+            ARGS=$(echo "$e" | jq -r '(.inputs // {}) | to_entries[] | "inputs[\(.key)]=\(.value|tostring)"')
+            set -- ; while IFS= read -r a; do [ -n "$a" ] && set -- "$@" -f "$a"; done <<< "$ARGS"
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/$W/dispatches" -f ref=main "$@" && echo "started $W $(echo "$e" | jq -c .inputs)"
+            sleep 2
+          done

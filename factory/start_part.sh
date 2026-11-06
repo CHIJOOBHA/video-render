@@ -14,7 +14,7 @@ req() {   # $1 lang, $2 src
   jq -nc --arg id "$PFX-$1-ch$C2-p$P" --arg ch "$PFX-$1-ch$C2" --arg lesson "src/lessons/auto/auto-$PID.ts" --arg spec "auto${C}Spec" \
     --arg comp "Auto${C}$(echo $1 | tr a-z A-Z)" --arg lang $1 --arg t "Ch $CH · Part $P · $SECS" --argjson p $P --arg src "$2" \
     '{video_id: $id, chapter_id: $ch, src: $src, lesson: $lesson, spec: $spec, comp: $comp, lang: $lang, chunks: 16, part: $p, title: $t}
-     + (if $lang == "te" then {te_shards: 16} else {} end)'
+     + (if $lang == "te" then {te_shards: 16} else {en_voice: "chijobha", te_shards: 16} end)'
 }
 go() { gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$1" && echo "started $(echo "$1" | jq -r .video_id)"; }
 if [ "$WHICH" != te ]; then go "$(req en "$SRC")"; fi

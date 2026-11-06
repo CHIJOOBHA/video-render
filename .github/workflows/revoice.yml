@@ -1,0 +1,39 @@
+# Re-voice chosen chapters in CHIJOBHA's English voice (6 Nov 2026) while the main queues stay paused ("scripts first").
+# queue/revoice.txt: one English-queue name piece per line (e.g. current-events-2026-03-) — only queued English parts whose
+# name contains one of them are started, at most queue/revoice-max (default 2) renders running at once. Empty file = nothing.
+# Requests come from private storage work/factory/en-queue/ (the factory puts them there); contains NO course content.
+name: revoice
+on:
+  schedule: [{ cron: '3,13,23,33,43,53 * * * *' }]
+  push:
+    branches: [main]
+    paths: ['queue/revoice.txt']
+  workflow_dispatch:
+concurrency: { group: revoice, cancel-in-progress: false }
+permissions: { contents: read, actions: write, id-token: write }
+jobs:
+  next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          R2="python3 r2.py"
+          grep -v '^\s*$' queue/revoice.txt 2>/dev/null > want.txt || true
+          [ -s want.txt ] || { echo "nothing chosen for re-voicing"; exit 0; }
+          ACTIVE=0
+          for st in queued in_progress; do
+            ACTIVE=$(( ACTIVE + $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/runs?status=$st&per_page=100" -q '.total_count') ))
+          done
+          MAX=$(cat queue/revoice-max 2>/dev/null || echo 2); FREE=$(( MAX - ACTIVE )); echo "renders running: $ACTIVE (max $MAX)"
+          [ $FREE -gt 0 ] || exit 0
+          for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | grep -F -f want.txt | sort | head -n $FREE); do
+            $R2 get "$K" req.json
+            jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two
+                   | if (.lang // "en") == "en" and .proj == null then .en_voice //= "chijobha" | .te_shards //= 16 else . end' req.json > rq.json
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(cat rq.json)" \
+              && $R2 rm "$K" && echo "started $(jq -r .video_id rq.json)"
+            sleep 2
+          done
+          echo "chosen parts still waiting: $($R2 list work/factory/en-queue/ | awk '{print $3}' | grep -c -F -f want.txt || true)"

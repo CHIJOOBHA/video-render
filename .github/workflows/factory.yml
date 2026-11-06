@@ -14,6 +14,7 @@ on:
       render: { description: 'queue renders (yes) or only write + check scripts (no)', default: 'yes' }
       order: { description: 'queue order (lower renders first; EO 10-29, Group 2 30-49)', default: '50' }
       fresh: { description: 'remake: write every piece again in the current style (yes) or reuse finished pieces (no)', default: 'no' }
+      lib_after: { description: 'continue a fresh remake: reuse only pieces written after this UTC time (e.g. 2026-11-05T11:55:00Z)', default: '' }
 permissions: { contents: read, actions: write, id-token: write }
 
 jobs:
@@ -44,4 +45,5 @@ jobs:
           ORD: ${{ inputs.order }}
         run: |
           if [ "${{ inputs.fresh }}" = "yes" ]; then export LIB_AFTER=$(date -u +%FT%TZ); echo "fresh remake: library pieces before $LIB_AFTER not reused"; fi
+          if [ -n "${{ inputs.lib_after }}" ]; then export LIB_AFTER="${{ inputs.lib_after }}"; echo "continuing a remake: only pieces written after $LIB_AFTER reused"; fi
           bash factory/make_parts.sh "${{ inputs.subject }}" "${{ matrix.ch }}" "${{ inputs.prefix }}" "${{ inputs.only }}"

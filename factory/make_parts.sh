@@ -41,7 +41,7 @@ for J in $(ls parts/*.json | sort -V); do
     jq -nc --arg id "$PFX-$L-ch$C2-p$P" --arg ch "$PFX-$L-ch$C2" --arg lesson "src/lessons/auto/auto-$ID.ts" \
       --arg spec "auto${C}Spec" --arg comp "Auto${C}$(echo $L | tr a-z A-Z)" --arg lang $L --arg t "Ch $CH · Part $P · $SECS" --argjson p $P \
       '{video_id: $id, chapter_id: $ch, src: "'$SRCK'", lesson: $lesson, spec: $spec, comp: $comp, lang: $lang,
-        chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {} end)' > out/$ID-$L.req
+        chunks: 16, part: $p, title: $t} + (if $lang == "te" then {te_shards: 16} else {en_voice: "chijobha", te_shards: 16} end)' > out/$ID-$L.req
   done
   if [ "${RENDER:-yes}" = "yes" ]; then
     # English renders wait in a queue too (queue.yml starts them as machines free up — thousands at once would time out)
