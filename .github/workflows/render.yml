@@ -263,7 +263,12 @@ jobs:
           else
             python3 r2.py get "work/$ID/$RUN/en-voice.tgz" v.tgz && tar -xzf v.tgz -C $V
           fi
-          if [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then   # 6 Nov 2026: his approved sample-G pauses (factory/pace.py)
+          if [ -n "$(jq -r '.tempo // empty' $R)" ]; then   # 6 Nov 2026 (marketing videos): speak faster, same pitch
+            pip install -q soundfile numpy
+            command -v ffmpeg >/dev/null || { timeout 300 sudo apt-get -qq update; timeout 300 sudo apt-get -qq install -y ffmpeg >/dev/null; }
+            python3 factory/tempo.py $V/$LID "$(jq -r .tempo $R)"
+          fi
+          if [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ] || [ "$(jq -r '.pace // false' $R)" = "true" ]; then   # 6 Nov 2026: his approved sample-G pauses (factory/pace.py)
             pip install -q soundfile numpy
             [ -s sentences.json ] || python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
             python3 factory/pace.py sentences.json $V/$LID
