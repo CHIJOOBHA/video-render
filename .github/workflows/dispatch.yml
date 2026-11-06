@@ -1,5 +1,5 @@
 # Start other workflows by a push (6 Nov 2026): Claude's working sessions have no GitHub key, only git push.
-# queue/dispatch.json = [{"workflow": "factory.yml", "inputs": {...}}, ...] — each entry is started once, by this push.
+# queue/dispatch.json = [{"workflow": "factory.yml", "inputs": {...}} | {"cancel": <run id>}, ...] — each entry acts once, by this push.
 # Contains NO course content (subject names, part ids, storage keys only).
 name: dispatch
 run-name: ${{ github.event.head_commit.message || 'dispatch (manual)' }}
@@ -17,6 +17,8 @@ jobs:
       - env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           jq -c '.[]' queue/dispatch.json | while read -r e; do
+            C=$(echo "$e" | jq -r '.cancel // empty')   # {"cancel": <run id>} stops a run (e.g. a double start)
+            if [ -n "$C" ]; then gh api -X POST "repos/$GITHUB_REPOSITORY/actions/runs/$C/cancel" && echo "cancelled $C"; continue; fi
             W=$(echo "$e" | jq -r .workflow)
             ARGS=$(echo "$e" | jq -r '(.inputs // {}) | to_entries[] | "inputs[\(.key)]=\(.value|tostring)"')
             set -- ; while IFS= read -r a; do [ -n "$a" ] && set -- "$@" -f "$a"; done <<< "$ARGS"

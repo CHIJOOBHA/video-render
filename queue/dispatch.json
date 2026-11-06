@@ -1,7 +1,1 @@
-[
- {"workflow": "factory.yml", "inputs": {"subject": "current-events-2026", "prefix": "ce", "chapters": "1,14", "base_src": "src/e86b6dd.tgz",
-   "only": "ce1p1,ce1p2,ce1p4,ce14p1,ce14p3,ce14p4", "render": "yes", "order": "10", "lib_after": "2026-11-05T11:55:00Z"}},
- {"workflow": "factory.yml", "inputs": {"subject": "current-events-2026", "prefix": "ce", "chapters": "13", "base_src": "src/e86b6dd.tgz",
-   "only": "ce13p1,ce13p2,ce13p3,ce13p5", "render": "no", "order": "10", "lib_after": "2026-11-05T11:55:00Z"}},
- {"workflow": "revoice.yml", "inputs": {}}
-]
+[{"cancel": 42198403528}, {"cancel": 42198396196}]
