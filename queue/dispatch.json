@@ -1,2 +1,1 @@
-[{"workflow": "revoice.yml", "inputs": {}}]
- 
+[{"force_cancel": 42251602460}, {"workflow": "revoice.yml", "inputs": {}}]
