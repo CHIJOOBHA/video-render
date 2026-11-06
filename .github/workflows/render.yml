@@ -263,6 +263,11 @@ jobs:
           else
             python3 r2.py get "work/$ID/$RUN/en-voice.tgz" v.tgz && tar -xzf v.tgz -C $V
           fi
+          if [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then   # 6 Nov 2026: his approved sample-G pauses (factory/pace.py)
+            pip install -q soundfile numpy
+            [ -s sentences.json ] || python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
+            python3 factory/pace.py sentences.json $V/$LID
+          fi
           [ "$(jq length $V/$LID/durations.json)" -gt 0 ] || { echo "::error::no voice for $LID"; exit 1; }   # never render a silent video
           tar -czf voice-all.tgz -C w/public/voice .
           python3 r2.py put voice-all.tgz "work/$ID/$RUN/voice-all.tgz"
