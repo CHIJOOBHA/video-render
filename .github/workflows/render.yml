@@ -466,8 +466,12 @@ jobs:
           python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/sentences.json" sentences.json || \
             python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$(jq -r '.reuse // .te_from // empty' $R)/sentences.json" sentences.json   # voice reused from that run
           pip install -q faster-whisper numpy >/dev/null
-          python3 $GITHUB_WORKSPACE/check_te.py audio.wav sentences.json durations.json "$L" per_sentence.json > ps.txt; PS=$?
-          python3 $GITHUB_WORKSPACE/r2.py put per_sentence.json "work/$ID/$GITHUB_RUN_ID/per_sentence.json"
+          # 6 Nov 2026: English decides on qa_final alone, so the second full listen (per sentence, ~12 min on CPU) is Telugu only
+          PS=0; : > ps.txt
+          if [ "$L" != "en" ]; then
+            python3 $GITHUB_WORKSPACE/check_te.py audio.wav sentences.json durations.json "$L" per_sentence.json > ps.txt; PS=$?
+            python3 $GITHUB_WORKSPACE/r2.py put per_sentence.json "work/$ID/$GITHUB_RUN_ID/per_sentence.json"
+          fi
           QF=0
           if [ "$L" = "en" ]; then
             python3 tools/qa_final.py audio.wav sentences.json en report.md > /dev/null; QF=$?
