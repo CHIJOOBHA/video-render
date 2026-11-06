@@ -30,6 +30,7 @@ jobs:
     outputs:
       req: ${{ steps.req.outputs.req }}
       shards: ${{ steps.voice.outputs.shards }}
+      colabwait: ${{ steps.voice.outputs.colabwait }}
     steps:
       - uses: actions/checkout@v4
       - name: Request (factory input)
@@ -71,6 +72,10 @@ jobs:
           cd w
           if [ "$(jq -r '.voice_tar // empty' $R)" != "" ]; then echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0; fi
           P=$(jq -r '.proj // empty' $R)
+          if [ -n "$(jq -r '.colab_voice // empty' $R)" ]; then   # 6 Nov 2026: voice made on Colab (colab/roach_voice.ipynb)
+            python3 $GITHUB_WORKSPACE/r2.py get "work/colab/sent/$ID.json" s.json && python3 $GITHUB_WORKSPACE/r2.py put s.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
+            echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           if [ -n "$(jq -r '.reuse // empty' $R)" ]; then
             python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$(jq -r .reuse $R)/sentences.json" s.json 2>/dev/null && python3 $GITHUB_WORKSPACE/r2.py put s.json "work/$ID/$GITHUB_RUN_ID/sentences.json" || true
             echo "shards=[]" >> "$GITHUB_OUTPUT"; exit 0
@@ -82,20 +87,20 @@ jobs:
               echo "re-voicing $(jq length sentences.json) sentences"
             fi
             python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
-            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"; exit 0
+            N=$(jq -r '.te_shards // 16' $R); [ "$(jq -r '.colab // false' $R)" = "true" ] || echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"; exit 0
           fi
           npm ci --no-audit --no-fund --silent
           node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" sentences.json
           python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/$ID/$GITHUB_RUN_ID/sentences.json"
           if [ "$L" = "te" ]; then
-            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
+            N=$(jq -r '.te_shards // 16' $R); [ "$(jq -r '.colab // false' $R)" = "true" ] || echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
           elif [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then
             # 5 Nov 2026: English in CHIJOBHA's own voice (his samples E/G) — the Telugu voice engine reads the English
             # written in Telugu letters (factory/en_letters.py); voiced on the same GPU/CPU path as Telugu.
             sudo python3 -m pip install -q --break-system-packages num2words wordfreq
             python3 $GITHUB_WORKSPACE/factory/en_letters.py sentences.json sentences-voice.json
             python3 $GITHUB_WORKSPACE/r2.py put sentences-voice.json "work/$ID/$GITHUB_RUN_ID/sentences-voice.json"
-            N=$(jq -r '.te_shards // 16' $R); echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
+            N=$(jq -r '.te_shards // 16' $R); [ "$(jq -r '.colab // false' $R)" = "true" ] || echo "shards=$(jq -nc "[range($N)]")" >> "$GITHUB_OUTPUT"
           else
             # system-wide install (4 Nov 2026): a user-site install was invisible to tools/missing_terms.py ("No module named wordfreq")
             sudo python3 -m pip install -q --break-system-packages kokoro-onnx soundfile wordfreq
@@ -112,6 +117,24 @@ jobs:
             tar -czf en-voice.tgz -C public/voice/en .
             python3 $GITHUB_WORKSPACE/r2.py put en-voice.tgz "work/$ID/$GITHUB_RUN_ID/en-voice.tgz"
             echo "shards=[]" >> "$GITHUB_OUTPUT"
+          fi
+          # 6 Nov 2026 — "colab": true: the voice is made on Google Colab (CHIJOBHA presses Run all in colab/roach_voice.ipynb).
+          # The job goes to work/colab/jobs/<id>/ (sentences in his-voice form + voice engine + his clip); this run stops here.
+          # When Colab has made the voice it writes work/colab/ready/<id>.json and the re-voice queue starts the render again.
+          if [ "$(jq -r '.colab // false' $R)" = "true" ] && { [ "$L" = "te" ] || [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; }; then
+            mkdir -p cj/tools && cp tools/voice_te.py cj/tools/
+            if [ "$L" = "te" ]; then cp sentences.json cj/sentences.json; REF=$(jq -r '.te_ref // "voices/te-chijobha/ref.wav"' $R); mkdir -p cj/$(dirname $REF); cp $(dirname $REF)/ref.wav $(dirname $REF)/ref.txt cj/$(dirname $REF)/
+            else cp sentences-voice.json cj/sentences.json; REF=voices/en-chijobha/ref.wav; mkdir -p cj/voices/en-chijobha
+              python3 $GITHUB_WORKSPACE/r2.py get voice/en-chijobha/ref.wav cj/voices/en-chijobha/ref.wav && python3 $GITHUB_WORKSPACE/r2.py get voice/en-chijobha/ref.txt cj/voices/en-chijobha/ref.txt; fi
+            jq -n --arg ref "$REF" --arg flow "$(jq -r '.te_flow // empty' $R)" --arg sp "$(jq -r '.te_speed // empty' $R)" '{TE_REF: $ref, TE_FLOW: $flow, TE_SPEED: $sp}' > cj/env.json
+            tar -czf payload.tgz -C cj .
+            python3 $GITHUB_WORKSPACE/r2.py put sentences.json "work/colab/sent/$ID.json"
+            python3 $GITHUB_WORKSPACE/r2.py put payload.tgz "work/colab/jobs/$ID/payload.tgz"
+            jq -c --arg at "$(date -u +%FT%TZ)" '{req: (del(.colab) + {colab_voice: ("work/colab/done/" + .video_id + ".tgz")}), at: $at, n: 0}' $R > job.json
+            jq --argjson n "$(jq '[.[]|length]|add' cj/sentences.json)" '.n = $n' job.json > j2.json && python3 $GITHUB_WORKSPACE/r2.py put j2.json "work/colab/jobs/$ID/job.json"
+            echo "{\"state\":\"waiting for voice (Colab)\",\"run\":\"$GITHUB_RUN_ID\",\"at\":\"$(date -u +%FT%TZ)\"}" > s.json && python3 $GITHUB_WORKSPACE/r2.py put s.json "jobs/$ID.json"
+            echo "shards=[]" >> "$GITHUB_OUTPUT"; echo "colabwait=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Colab::voice job for $ID is waiting — press Run all in the Roach voice notebook"
           fi
 
   tegpu:     # Telugu voice on a GPU first: Modal, Kaggle, RunPod, Vast.ai in turn (gpu/voice.py; order in queue/gpu-order).
@@ -198,7 +221,7 @@ jobs:
 
   plan:
     needs: [prep, tegpu, tevoice]
-    if: ${{ always() && needs.prep.result == 'success' && (needs.tegpu.outputs.ok == 'true' || needs.tevoice.result == 'success' || (needs.tevoice.result == 'skipped' && needs.prep.outputs.shards == '[]')) }}
+    if: ${{ always() && needs.prep.result == 'success' && needs.prep.outputs.colabwait != 'true' && (needs.tegpu.outputs.ok == 'true' || needs.tevoice.result == 'success' || (needs.tevoice.result == 'skipped' && needs.prep.outputs.shards == '[]')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -254,6 +277,11 @@ jobs:
               (cd w && npm ci --no-audit --no-fund --silent && node tools/export_sentences.mjs "$(jq -r .lesson $R)" "$(jq -r .spec $R)" "$L" ../sentences.json)
               python3 w/tools/durations.py sentences.json $V/$LID
             fi
+          elif [ -n "$(jq -r '.colab_voice // empty' $R)" ]; then   # voice made on Colab
+            pip install -q soundfile
+            python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json
+            python3 r2.py get "$(jq -r .colab_voice $R)" t.tgz && tar -xzf t.tgz -C $V/$LID
+            python3 w/tools/durations.py sentences.json $V/$LID
           elif [ "$L" = "te" ] || [ "$(jq -r '.en_voice // empty' $R)" = "chijobha" ]; then
             pip install -q soundfile
             python3 r2.py get "work/$ID/$RUN/sentences.json" sentences.json

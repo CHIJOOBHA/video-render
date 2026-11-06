@@ -20,14 +20,22 @@ jobs:
       - env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           R2="python3 r2.py"
-          grep -v '^\s*$' queue/revoice.txt 2>/dev/null > want.txt || true
-          [ -s want.txt ] || { echo "nothing chosen for re-voicing"; exit 0; }
           ACTIVE=0
           for st in queued in_progress; do
             ACTIVE=$(( ACTIVE + $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/runs?status=$st&per_page=100" -q '.total_count') ))
           done
           MAX=$(cat queue/revoice-max 2>/dev/null || echo 2); FREE=$(( MAX - ACTIVE )); echo "renders running: $ACTIVE (max $MAX)"
           [ $FREE -gt 0 ] || exit 0
+          # 6 Nov 2026: voices finished on Colab (work/colab/ready/<id>.json = the render request) are rendered first
+          for K in $($R2 list work/colab/ready/ | awk '{print $3}' | sort | head -n $FREE); do
+            $R2 get "$K" rq.json
+            gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/render.yml/dispatches" -f ref=main -f "inputs[req]=$(jq -c . rq.json)" \
+              && $R2 rm "$K" && echo "started (Colab voice) $(jq -r .video_id rq.json)" && FREE=$(( FREE - 1 ))
+            sleep 2
+          done
+          [ $FREE -gt 0 ] || exit 0
+          grep -v '^\s*$' queue/revoice.txt 2>/dev/null > want.txt || true
+          [ -s want.txt ] || { echo "nothing chosen for re-voicing"; exit 0; }
           for K in $($R2 list work/factory/en-queue/ | awk '{print $3}' | grep -F -f want.txt | sort | head -n $FREE); do
             $R2 get "$K" req.json
             jq -c 'def two: sub("-ch(?<n>[0-9])(?<r>-|$)"; "-ch0\(.n)\(.r)"); .chapter_id |= two | .video_id |= two
