@@ -10,6 +10,9 @@ on:
     inputs:
       payload: { required: true }
       id: { required: true }
+permissions:
+  id-token: write
+  contents: read
 jobs:
   cpu:
     runs-on: ubuntu-latest
