@@ -55,15 +55,18 @@ def k(*a, check=True):
         sys.exit(f"kaggle {a[0]} {a[1]} failed: {(r.stderr or r.stdout)[-300:]}")
     return r.stdout
 
-print(k("kernels", "push", "-p", d).strip()[-200:])
-t0 = time.time()
+# 7 Nov 2026: KAGGLE_FETCH=1 = don't push again, only wait for the run already on Kaggle and fetch it;
+# KAGGLE_WAIT = seconds to wait (default 3000; a 100-line Telugu job needs longer)
+if os.environ.get("KAGGLE_FETCH", "") != "1":
+    print(k("kernels", "push", "-p", d).strip()[-200:])
+t0 = time.time(); WAIT = int(os.environ.get("KAGGLE_WAIT", "3000"))
 while True:
     time.sleep(30)
     st = k("kernels", "status", f"{user}/{slug}", check=False).lower()
     print(f"{int(time.time() - t0)}s {st.strip()[-80:]}", flush=True)
     if "complete" in st:
         break
-    if "error" in st or "cancel" in st or time.time() - t0 > 3000:
+    if "error" in st or "cancel" in st or time.time() - t0 > WAIT:
         sys.exit("kaggle run did not finish")
 o = tempfile.mkdtemp()
 k("kernels", "output", f"{user}/{slug}", "-p", o)

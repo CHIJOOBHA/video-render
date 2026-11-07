@@ -17,11 +17,13 @@ on:
       lang: { required: false, default: te }
       takes: { required: false, default: '1' }
       cpu: { required: false, default: 'false' }
+      fetch: { required: false, default: 'false' }   # true = only collect a Kaggle run that is still going
 permissions:
   id-token: write
   contents: read
 jobs:
   prep:
+    if: ${{ inputs.fetch != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +52,7 @@ jobs:
           tar -czf p2.tgz -C w . && python3 r2.py put p2.tgz "work/voicetest/${{ inputs.id }}/payload2.tgz"
   gpu:
     needs: prep
+    if: ${{ always() && (needs.prep.result == 'success' || inputs.fetch == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
@@ -60,6 +63,7 @@ jobs:
         run: |
           python3 r2.py get "work/voicetest/${{ inputs.id }}/payload2.tgz" p.tgz && mkdir w && tar -xzf p.tgz -C w
           if [ "${{ inputs.lang }}" = "en" ]; then export TE_REF="voices/en-chijobha/ref.wav"; fi
+          export KAGGLE_WAIT=16000; [ "${{ inputs.fetch }}" = true ] && export KAGGLE_FETCH=1
           GPU_ORDER=kaggle python3 gpu/voice.py w w/sentences.json gpu-out "vt-${{ inputs.id }}" "${{ github.run_id }}"
           for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/voicetest/${{ inputs.id }}/gpu-$(basename "$f")"; done
   cpu:
