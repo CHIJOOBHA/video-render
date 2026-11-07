@@ -414,6 +414,7 @@ def main():
     rules = (locked + "\n\n" + rd("guides/teacher-script.md") + "\n\n" + rd("guides/explain-style.md") + "\n\n" +
              ("# MODEL SCRIPT (CHIJOBHA wrote it; it is Telugu — write the SAME style in English; copy the style, NEVER its facts)\n" +
               sample + "\n\n" if sample else "") +
+             open(os.path.join(HERE, "story-rules.md"), encoding="utf-8").read() + "\n\n" +
              open(os.path.join(HERE, "menu.md"), encoding="utf-8").read())
     rules = rules.replace('All text is a pair `["English", "Telugu"]`.', "All text is plain English (Telugu is added later).")
     pieces = chunks(part["en"])
