@@ -1,1 +1,1 @@
-[{"workflow": "voice-test.yml", "inputs": {"payload": "work/voicetest/metaca01-en/payload.tgz", "id": "metaca01-en", "lang": "en", "takes": "1"}}]
+[{"workflow": "voice-test.yml", "inputs": {"payload": "work/voicetest/metaca01-en-fix/payload.tgz", "id": "metaca01-en-fix", "lang": "en", "takes": "2"}}]
