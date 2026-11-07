@@ -1,0 +1,38 @@
+# Voice A/B test (7 Nov 2026, CHIJOBHA: "why is the crypto voice fine but not this one?"): voice a few Telugu lines
+# the way Bit Badi episodes were voiced (GitHub CPU, tools/voice_te.py) AND on the Kaggle GPU (gpu/voice.py), same text,
+# same reference clip. Payload (private R2) = tgz with tools/voice_te.py, tools/setup_indicf5.sh, voices/te-chijobha/,
+# sentences.json. Results: work/voicetest/<id>/cpu.tgz and work/voicetest/<id>/gpu-*.tgz
+# Dispatch: gh workflow run voice-test.yml -f payload=work/voicetest/<id>/payload.tgz -f id=<id>
+name: voice-test
+run-name: voice-test ${{ inputs.id }}
+on:
+  workflow_dispatch:
+    inputs:
+      payload: { required: true }
+      id: { required: true }
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          python3 r2.py get "${{ inputs.payload }}" p.tgz && mkdir w && tar -xzf p.tgz -C w
+          bash $GITHUB_WORKSPACE/ffmpeg_setup.sh
+          bash w/tools/setup_indicf5.sh 2>&1 | tail -3
+          python3 w/tools/voice_te.py w/sentences.json te-out
+          tar -czf cpu.tgz -C te-out . && python3 r2.py put cpu.tgz "work/voicetest/${{ inputs.id }}/cpu.tgz"
+  gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
+          KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
+        run: |
+          python3 r2.py get "${{ inputs.payload }}" p.tgz && mkdir w && tar -xzf p.tgz -C w
+          GPU_ORDER=kaggle python3 gpu/voice.py w w/sentences.json gpu-out "vt-${{ inputs.id }}" "${{ github.run_id }}"
+          for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/voicetest/${{ inputs.id }}/gpu-$(basename "$f")"; done
