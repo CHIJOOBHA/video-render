@@ -1,41 +1,80 @@
-# Voice A/B test (7 Nov 2026, CHIJOBHA: "why is the crypto voice fine but not this one?"): voice a few Telugu lines
-# the way Bit Badi episodes were voiced (GitHub CPU, tools/voice_te.py) AND on the Kaggle GPU (gpu/voice.py), same text,
-# same reference clip. Payload (private R2) = tgz with tools/voice_te.py, tools/setup_indicf5.sh, voices/te-chijobha/,
-# sentences.json. Results: work/voicetest/<id>/cpu.tgz and work/voicetest/<id>/gpu-*.tgz
-# Dispatch: gh workflow run voice-test.yml -f payload=work/voicetest/<id>/payload.tgz -f id=<id>
+# Voice job on the free Kaggle GPU (7 Nov 2026; Colab limit used up). Started as the A/B test (same Telugu lines on GitHub
+# CPU = Bit Badi path vs Kaggle GPU vs Colab: all equal, see roach-video-studio briefs/ram-ch01-p1-voice.md).
+# Payload (private R2) = tgz with tools/voice_te.py, tools/setup_indicf5.sh, voices/te-chijobha/, sentences.json.
+#   lang=en  : sentences are English → factory/en_letters.py writes them in Telugu letters (AI key below), his English clip
+#   takes=N  : every line voiced N times (keys <scene>t<n>, n = 1..N) so the best take can be picked (tools/pick_takes.py)
+#   cpu=true : also voice on a GitHub CPU machine (the A/B test)
+# Results: work/voicetest/<id>/gpu-*.tgz (+ cpu.tgz, sentences-voice.json for en)
+# Dispatch: gh api -X POST repos/CHIJOOBHA/video-render/actions/workflows/voice-test.yml/dispatches -f ref=main
+#   -f "inputs[payload]=work/voicetest/<id>/payload.tgz" -f "inputs[id]=<id>" -f "inputs[lang]=te" -f "inputs[takes]=2"
 name: voice-test
-run-name: voice-test ${{ inputs.id }}
+run-name: voice ${{ inputs.id }}
 on:
   workflow_dispatch:
     inputs:
       payload: { required: true }
       id: { required: true }
+      lang: { required: false, default: te }
+      takes: { required: false, default: '1' }
+      cpu: { required: false, default: 'false' }
 permissions:
   id-token: write
   contents: read
 jobs:
-  cpu:
+  prep:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
-      - run: |
+      - env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
           python3 r2.py get "${{ inputs.payload }}" p.tgz && mkdir w && tar -xzf p.tgz -C w
-          bash $GITHUB_WORKSPACE/ffmpeg_setup.sh
-          bash w/tools/setup_indicf5.sh 2>&1 | tail -3
-          python3 w/tools/voice_te.py w/sentences.json te-out
-          tar -czf cpu.tgz -C te-out . && python3 r2.py put cpu.tgz "work/voicetest/${{ inputs.id }}/cpu.tgz"
+          if [ "${{ inputs.lang }}" = "en" ]; then
+            pip install -q requests >/dev/null 2>&1 || true
+            python3 factory/en_letters.py w/sentences.json w/sentences-voice.json
+            python3 r2.py put w/sentences-voice.json "work/voicetest/${{ inputs.id }}/sentences-voice.json"
+            mv w/sentences-voice.json w/sentences.json
+            mkdir -p w/voices/en-chijobha && python3 r2.py get voice/en-chijobha/ref.wav w/voices/en-chijobha/ref.wav && python3 r2.py get voice/en-chijobha/ref.txt w/voices/en-chijobha/ref.txt
+          fi
+          python3 - <<'EOF'
+          import json
+          n = int("${{ inputs.takes }}" or 1); s = json.load(open("w/sentences.json"))
+          if n > 1: s = {f"{k}t{t}": v for t in range(1, n + 1) for k, v in s.items()}
+          json.dump(s, open("w/sentences.json", "w"), ensure_ascii=False)
+          print(sum(len(v) for v in s.values()), "lines")
+          EOF
+          tar -czf p2.tgz -C w . && python3 r2.py put p2.tgz "work/voicetest/${{ inputs.id }}/payload2.tgz"
   gpu:
+    needs: prep
     runs-on: ubuntu-latest
-    timeout-minutes: 100
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - env:
           KAGGLE_USERNAME: ${{ secrets.KAGGLE_USERNAME }}
           KAGGLE_KEY: ${{ secrets.KAGGLE_KEY }}
         run: |
-          python3 r2.py get "${{ inputs.payload }}" p.tgz && mkdir w && tar -xzf p.tgz -C w
+          python3 r2.py get "work/voicetest/${{ inputs.id }}/payload2.tgz" p.tgz && mkdir w && tar -xzf p.tgz -C w
+          if [ "${{ inputs.lang }}" = "en" ]; then export TE_REF="voices/en-chijobha/ref.wav"; fi
           GPU_ORDER=kaggle python3 gpu/voice.py w w/sentences.json gpu-out "vt-${{ inputs.id }}" "${{ github.run_id }}"
           for f in gpu-out/*.tgz; do python3 r2.py put "$f" "work/voicetest/${{ inputs.id }}/gpu-$(basename "$f")"; done
+  cpu:
+    needs: prep
+    if: ${{ inputs.cpu == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: |
+          python3 r2.py get "work/voicetest/${{ inputs.id }}/payload2.tgz" p.tgz && mkdir w && tar -xzf p.tgz -C w
+          bash $GITHUB_WORKSPACE/ffmpeg_setup.sh
+          bash w/tools/setup_indicf5.sh 2>&1 | tail -3
+          if [ "${{ inputs.lang }}" = "en" ]; then export TE_REF="$PWD/w/voices/en-chijobha/ref.wav"; fi
+          python3 w/tools/voice_te.py w/sentences.json te-out
+          tar -czf cpu.tgz -C te-out . && python3 r2.py put cpu.tgz "work/voicetest/${{ inputs.id }}/cpu.tgz"
