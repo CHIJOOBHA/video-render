@@ -17,7 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: { w: [1, 2] }
-    concurrency: { group: scripts-worker-${{ matrix.w }}, cancel-in-progress: false }
+    concurrency:
+      group: scripts-worker-${{ matrix.w }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - run: sudo python3 -m pip install -q --break-system-packages num2words wordfreq
