@@ -103,33 +103,35 @@ def repair(lang, paras, miss, notes):
     out = [p for p in (ans or {}).get("paragraphs") or [] if isinstance(p, dict) and str(p.get("text", "")).strip()]
     return out or paras
 
-def do_lang(lang, row_id, plan, res):
-    d = api("notes", id=row_id)
-    us = units(d["notes"])
-    parts = plan if plan is not None and len(us) == plan["n_units"] else None
-    groups = parts["groups"] if parts else (group(us) if plan is None else regroup(us, len(plan["groups"])))
-    res["plan"] = {"n_units": len(us), "groups": groups}
-    n = len(groups); out_parts, prev_last, total_pts, missing_all = [], "", 0, []
-    for k, g in enumerate(groups, 1):
-        notes = "\n\n".join(us[i] for i in g)
-        if not notes.strip(): continue
-        led = ledger.points(notes, lang); total_pts += len(led)
-        nxt = groups[k] if k < n else None
-        hint = (heads("\n\n".join(us[i] for i in nxt))[:1] or ["the next topic"])[0] if nxt else \
-               (f"the next chapter, {d['next_title']}" if d.get("next_title") else "the end of this subject")
-        goal = max(550, min(1150, int(wc(notes) * 1.7))) if lang == "en" else max(550, min(1150, int(wc(notes) * 1.25)))
-        paras = write_part(lang, d["title"], k, n, notes, led, prev_last, hint, goal)
-        for rnd in range(2):
-            miss, _ = ledger.missing(led, [(f"p{i}", p["text"]) for i, p in enumerate(paras)], lang)
-            if not miss: break
-            print(f"  {row_id} p{k}: {len(miss)} points missing -> repair {rnd + 1}", flush=True)
-            paras = repair(lang, paras, miss, notes)
-        else:
-            miss, _ = ledger.missing(led, [(f"p{i}", p["text"]) for i, p in enumerate(paras)], lang)
-        missing_all += [{"part": k, "n": p["n"], "point": p["point"]} for p in miss]
-        out_parts.append({"part": k, "headings": heads(notes), "ledger": led, "paragraphs": paras})
-        prev_last = paras[-1]["text"][:400] if paras else ""
-    res.update(title=d["title"], parts=out_parts, points=total_pts, missing=missing_all)
+def plan_chapter(en_id, te_id):
+    """part plan from the notes alone (no AI): EN fixes the parts, TE follows EN's cuts when its sections match."""
+    d = {"en": api("notes", id=en_id)}
+    if te_id: d["te"] = api("notes", id=te_id)
+    us = {l: units(d[l]["notes"]) for l in d}
+    g = {"en": group(us["en"])}
+    if te_id: g["te"] = g["en"] if len(us["te"]) == len(us["en"]) else regroup(us["te"], len(g["en"]))
+    return d, us, g
+
+def one_part(lang, d, us, groups, k):
+    g = groups[k - 1]; n = len(groups)
+    notes = "\n\n".join(us[i] for i in g)
+    if not notes.strip(): return None
+    led = ledger.points(notes, lang)
+    nxt = groups[k] if k < n else None
+    hint = (heads("\n\n".join(us[i] for i in nxt))[:1] or ["the next topic"])[0] if nxt else \
+           (f"the next chapter, {d['next_title']}" if d.get("next_title") else "the end of this subject")
+    prev = heads("\n\n".join(us[i] for i in groups[k - 2])) if k > 1 else []
+    prev_last = ("the previous part taught: " + "; ".join(prev[:4])) if prev else ""
+    goal = max(550, min(1150, int(wc(notes) * (1.7 if lang == "en" else 1.25))))
+    paras = write_part(lang, d["title"], k, n, notes, led, prev_last, hint, goal)
+    miss = []
+    for rnd in range(3):
+        miss, _ = ledger.missing(led, [(f"p{i}", p["text"]) for i, p in enumerate(paras)], lang)
+        if not miss or rnd == 2: break
+        print(f"  {lang} p{k}: {len(miss)} points missing -> repair {rnd + 1}", flush=True)
+        paras = repair(lang, paras, miss, notes)
+    return {"part": k, "headings": heads(notes), "ledger": led, "paragraphs": paras,
+            "missing": [{"part": k, "n": p["n"], "point": p["point"]} for p in miss]}
 
 def speak_md(lang, title, parts):
     if lang == "en":
@@ -146,22 +148,28 @@ def speak_md(lang, title, parts):
     return "\n".join(out), n
 
 def chapter(job):
+    from concurrent.futures import ThreadPoolExecutor
     ids = sorted(job["ids"], key=lambda x: "-te-" in x)          # EN first
     os.environ["ANTHROPIC_MODEL"] = job.get("model") or "claude-haiku-5-5"
     en_id = ids[0]; te_id = ids[1] if len(ids) > 1 else None
-    t0 = time.time(); res = {"en": {}, "te": {}}
-    do_lang("en", en_id, None, res["en"])                       # EN fixes the part plan
-    if te_id:
-        do_lang("te", te_id, res["en"]["plan"], res["te"])
+    t0 = time.time()
+    d, us, g = plan_chapter(en_id, te_id)
+    tasks = [(l, k) for l in g for k in range(1, len(g[l]) + 1)]
+    with ThreadPoolExecutor(max_workers=int(os.environ.get("PART_THREADS", "6"))) as ex:
+        futs = {t: ex.submit(one_part, t[0], d[t[0]], us[t[0]], g[t[0]], t[1]) for t in tasks}
+        res = {t: f.result() for t, f in futs.items()}
     for lang, rid in (("en", en_id), ("te", te_id)):
         if not rid: continue
-        r = res[lang]; md, paras = speak_md(lang, r["title"], r["parts"])
-        status = "ready" if not r["missing"] else "check"
-        api("put", {"id": rid, "status": status, "speak_md": md, "parts": len(r["parts"]), "words": len(md.split()),
-                    "parts_json": r["parts"], "model": os.environ["ANTHROPIC_MODEL"],
-                    "coverage": {"points": r["points"], "covered": r["points"] - len(r["missing"]), "missing": r["missing"]},
+        parts = [res[(lang, k)] for k in range(1, len(g[lang]) + 1) if res.get((lang, k))]
+        md, paras = speak_md(lang, d[lang]["title"], parts)
+        missing = [m for p in parts for m in p.pop("missing")]
+        pts = sum(len(p["ledger"]) for p in parts)
+        status = "ready" if not missing else "check"
+        api("put", {"id": rid, "status": status, "speak_md": md, "parts": len(parts), "words": len(md.split()),
+                    "parts_json": parts, "model": os.environ["ANTHROPIC_MODEL"],
+                    "coverage": {"points": pts, "covered": pts - len(missing), "missing": missing},
                     "note": f"{paras} paragraphs, {time.time() - t0:.0f}s"})
-        print(f"{rid}: {status} · {len(r['parts'])} parts · {paras} paragraphs · points {r['points']} missing {len(r['missing'])}", flush=True)
+        print(f"{rid}: {status} · {len(parts)} parts · {paras} paragraphs · points {pts} missing {len(missing)} · {time.time() - t0:.0f}s", flush=True)
 
 def main():
     worker, stop = sys.argv[1], float(sys.argv[2]) * 60
