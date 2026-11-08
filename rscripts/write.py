@@ -182,6 +182,14 @@ def chapter(job):
 def main():
     worker, stop = sys.argv[1], float(sys.argv[2]) * 60
     t0 = time.time(); done = 0
+    os.environ["ANTHROPIC_MODEL"] = "claude-haiku-5-5"
+    try:                                                     # no credit / no key: stop before taking any chapter
+        llm._anthropic('Reply with this JSON only: {"ok": 1}', "credit check")
+    finally:
+        for line in llm.LOG: print("   ", line[:200], flush=True)
+        llm.LOG.clear()
+    if llm.AN_DEAD or not os.environ.get("ANTHROPIC_API_KEY"):
+        print("Anthropic API not usable (credit?) — no chapter taken", flush=True); return
     while time.time() - t0 < stop:
         job = api("claim", {"worker": worker})
         if not job.get("pair_id"): print("queue empty", flush=True); break
