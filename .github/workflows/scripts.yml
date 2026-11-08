@@ -1,0 +1,29 @@
+# Roach Academia recording scripts (8 Nov 2026): N workers take chapters from the Supabase queue (video_scripts,
+# edge function video-scripts, GitHub OIDC) and write EN + TE recording scripts with the Claude API. Contains NO course
+# content and never prints notes. Starts on push of rscripts/**, by hand, and every 3 hours until the queue is empty.
+name: scripts
+run-name: scripts ${{ github.event_name }}
+on:
+  push: { branches: [main], paths: ['rscripts/**', '.github/workflows/scripts.yml'] }
+  schedule: [ { cron: '17 */3 * * *' } ]
+  workflow_dispatch:
+    inputs:
+      minutes: { description: 'each worker stops after (min)', default: '300' }
+permissions: { contents: read, id-token: write }
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix: { w: [1, 2] }
+    concurrency: { group: scripts-worker-${{ matrix.w }}, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo python3 -m pip install -q --break-system-packages num2words wordfreq
+      - name: Write chapters
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: python3 rscripts/write.py "gh-${{ github.run_id }}-w${{ matrix.w }}" "${{ inputs.minutes || '300' }}"
