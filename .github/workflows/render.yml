@@ -461,6 +461,8 @@ jobs:
           if [ -n "$P" ]; then
             mv w/chunks w/$P/chunks; cd w/$P; tar -xzf $GITHUB_WORKSPACE/v.tgz
             cp public/voice_$L.wav audio.wav; cp src/ep/timings_$L.json durations.json
+            # "lead": seconds of logo sting before the voice (Bit Badi Vox + board, 8 Nov 2026): the timings stay unshifted, the sound track is delayed
+            LD=$(jq -r '.lead // 0' $R); if [ "$LD" != "0" ]; then ffmpeg -v error -y -i public/voice_$L.wav -af "adelay=$(python3 -c "print(round($LD*1000))"):all=1" audio.wav; fi
           else
           cd w
           if ! python3 $GITHUB_WORKSPACE/r2.py get "work/$ID/$GITHUB_RUN_ID/audio.wav" audio.wav 2>/dev/null; then
@@ -538,7 +540,7 @@ jobs:
           echo "::notice title=video::duration ${D}s · black stretches over 1s: ${B}"
           set +e
           if [ -f tools/qa_sentences_te.py ] && [ "$L" = "te" ]; then
-            python3 tools/qa_sentences_te.py hd.mp4 per_sentence.json > ps.txt; rs=$?
+            LEAD=$(jq -r '.lead // 0' $R) python3 tools/qa_sentences_te.py hd.mp4 per_sentence.json > ps.txt; rs=$?
             while read -r l; do echo "::notice title=per-sentence::$l"; done < ps.txt
           fi
           # qa_final (one long transcription) drifts on 19-min Telugu (30-53/138 while per-sentence gives 135/138): Telugu
