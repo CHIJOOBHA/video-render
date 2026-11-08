@@ -4,7 +4,9 @@
 name: scripts
 run-name: scripts ${{ github.event_name }}
 on:
-  # STOPPED 8 Nov 2026 22:35 IST (CHIJOBHA: no API, scripts are written in Claude chats). Only a manual start remains.
+  # 8 Nov 2026 22:40 IST (CHIJOBHA): the API writes whenever it has credit; with no credit a worker takes no chapter.
+  # Scheduled Claude chat sessions (his subscription) write from the same queue at the same time.
+  schedule: [ { cron: '17 * * * *' } ]
   workflow_dispatch:
     inputs:
       minutes: { description: 'each worker stops after (min)', default: '300' }
