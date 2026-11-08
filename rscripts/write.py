@@ -112,6 +112,14 @@ def plan_chapter(en_id, te_id):
     if te_id: g["te"] = g["en"] if len(us["te"]) == len(us["en"]) else regroup(us["te"], len(g["en"]))
     return d, us, g
 
+def chk(text, lang):
+    """text the coverage check reads: spoken Telugu forms of exam codes also count as the written ones."""
+    if lang != "te": return text
+    t = text.replace("ఏపీపీఎస్సీ", "APPSC ఏపీపీఎస్సీ").replace("ఈఓ", "EO ఈఓ").replace("గ్రూప్", "Group గ్రూప్")
+    t = re.sub(r"క్వశ్చన్\s*(\d+)", r"Q\1 క్వశ్చన్ \1", t)
+    t = re.sub(r"పేపర్\s*(\d)", lambda m: f"Paper-{'I' * int(m.group(1)) if m.group(1) in '123' else m.group(1)} పేపర్ {m.group(1)}", t)
+    return t
+
 def one_part(lang, d, us, groups, k):
     g = groups[k - 1]; n = len(groups)
     notes = "\n\n".join(us[i] for i in g)
@@ -126,7 +134,7 @@ def one_part(lang, d, us, groups, k):
     paras = write_part(lang, d["title"], k, n, notes, led, prev_last, hint, goal)
     miss = []
     for rnd in range(3):
-        miss, _ = ledger.missing(led, [(f"p{i}", p["text"]) for i, p in enumerate(paras)], lang)
+        miss, _ = ledger.missing(led, [(f"p{i}", chk(p["text"], lang)) for i, p in enumerate(paras)], lang)
         if not miss or rnd == 2: break
         print(f"  {lang} p{k}: {len(miss)} points missing -> repair {rnd + 1}", flush=True)
         paras = repair(lang, paras, miss, notes)
